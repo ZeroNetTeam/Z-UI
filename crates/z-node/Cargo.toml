@@ -1,0 +1,20 @@
+[package]
+name = "z-node"
+description = "A Z-UI node: the core a panel drives, here or (later) on another server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+z-common = { workspace = true }
+zero-runtime = { workspace = true }
+zero-config = { workspace = true }
+zero-core = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

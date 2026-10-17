@@ -1,0 +1,31 @@
+[package]
+name = "z-panel"
+description = "Z-UI: a control panel for zray-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "z-ui"
+path = "src/main.rs"
+
+[dependencies]
+z-common = { workspace = true }
+z-db = { workspace = true }
+z-node = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+rust-embed = { workspace = true }
+mime_guess = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+http-body-util = "0.1"

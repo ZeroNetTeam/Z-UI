@@ -1,0 +1,11 @@
+/target
+/data
+node_modules/
+/dashboard/dist/
+*.db
+*.db-shm
+*.db-wal
+.env
+# Reference checkouts, each its own repository. zray-core (resources/ZeroNet)
+# is a build dependency; see README.md for how to get it.
+/resources/
