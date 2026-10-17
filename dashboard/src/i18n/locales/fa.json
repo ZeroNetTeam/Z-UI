@@ -1,0 +1,48 @@
+{
+  "app": { "name": "Z-UI", "tagline": "پنل مدیریت zray-core" },
+  "nav": {
+    "platform": "پلتفرم",
+    "configuration": "پیکربندی",
+    "dashboard": "داشبورد",
+    "users": "کاربران",
+    "inbounds": "ورودی‌ها",
+    "hosts": "هاست‌ها",
+    "groups": "گروه‌ها",
+    "templates": "قالب‌ها",
+    "nodes": "نودها",
+    "admins": "مدیران",
+    "core": "تنظیمات هسته",
+    "settings": "تنظیمات",
+    "soon": "به‌زودی"
+  },
+  "header": {
+    "menu": "منو",
+    "theme": "پوسته",
+    "light": "روشن",
+    "dark": "تیره",
+    "system": "سیستم",
+    "language": "زبان"
+  },
+  "dashboard": {
+    "title": "داشبورد",
+    "subtitle": "نمای کلی پنل و هسته",
+    "core": "وضعیت هسته",
+    "running": "در حال اجرا",
+    "stopped": "متوقف",
+    "inbounds": "ورودی‌ها",
+    "inboundsHint": "ورودی‌های فعال روی هسته",
+    "sessions": "اتصال‌های باز",
+    "sessionsHint": "همه‌ی ورودی‌ها با هم",
+    "version": "نسخه‌ی پنل",
+    "unreachable": "پنل در دسترس نیست",
+    "retry": "تلاش دوباره",
+    "noCore": "هسته هنوز پیکربندی نشده. با ساختن اولین ورودی راه می‌افتد.",
+    "system": "منابع سیستم",
+    "systemSoon": "نمودار مصرف CPU، حافظه و شبکه در فاز ۶ اضافه می‌شود."
+  },
+  "placeholder": {
+    "title": "این بخش در راه است",
+    "body": "«{{page}}» در فاز {{phase}} رودمپ ساخته می‌شود."
+  },
+  "notFound": { "title": "صفحه پیدا نشد", "back": "بازگشت به داشبورد" }
+}

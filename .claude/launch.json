@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "z-ui",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "-p", "z-panel", "--", "--listen", "127.0.0.1:2053", "--base-path", "/zpanel", "--data-dir", "data"],
+      "port": 2053
+    }
+  ]
+}

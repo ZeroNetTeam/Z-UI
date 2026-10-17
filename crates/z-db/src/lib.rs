@@ -97,7 +97,10 @@ mod tests {
         db.set_setting("panel.port", "2096").await.unwrap();
         drop(db);
         let db = Database::open(&url).await.unwrap();
-        assert_eq!(db.setting("panel.port").await.unwrap().as_deref(), Some("2096"));
+        assert_eq!(
+            db.setting("panel.port").await.unwrap().as_deref(),
+            Some("2096")
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

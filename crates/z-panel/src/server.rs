@@ -123,7 +123,11 @@ mod tests {
             .get(header::CONTENT_TYPE)
             .map(|v| v.to_str().unwrap().to_string());
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        (status, String::from_utf8_lossy(&body).into_owned(), content_type)
+        (
+            status,
+            String::from_utf8_lossy(&body).into_owned(),
+            content_type,
+        )
     }
 
     #[tokio::test]

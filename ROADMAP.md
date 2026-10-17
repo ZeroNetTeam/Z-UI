@@ -74,6 +74,8 @@
 
 ## 🏗️ فاز ۱: اسکلت و سیستم طراحی
 
+> ✅ **انجام شد:** workspace (`z-common`، `z-db`، `z-node`، `z-panel`)، سرور پنل زیر مسیر مخفی، داشبورد جاسازی‌شده در باینری، تم طلایی/مشکی/خاکستری تیره و روشن، فارسی (RTL) و انگلیسی، سایدبار و نسخه‌ی موبایل، README، Makefile و CI.
+
 - Cargo workspace: `z-panel`، `z-db`، `z-node` (trait و LocalNode) و `z-common`
 - پروژه‌ی `dashboard/`: Vite، React و shadcn
 - سیستم طراحی طلایی: توکن‌های رنگ، حالت تیره و روشن، و فونت فارسی (Vazirmatn)

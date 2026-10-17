@@ -1,0 +1,48 @@
+{
+  "app": { "name": "Z-UI", "tagline": "zray-core control panel" },
+  "nav": {
+    "platform": "Platform",
+    "configuration": "Configuration",
+    "dashboard": "Dashboard",
+    "users": "Users",
+    "inbounds": "Inbounds",
+    "hosts": "Hosts",
+    "groups": "Groups",
+    "templates": "Templates",
+    "nodes": "Nodes",
+    "admins": "Admins",
+    "core": "Core settings",
+    "settings": "Settings",
+    "soon": "Soon"
+  },
+  "header": {
+    "menu": "Menu",
+    "theme": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "language": "Language"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "The panel and its core at a glance",
+    "core": "Core",
+    "running": "Running",
+    "stopped": "Stopped",
+    "inbounds": "Inbounds",
+    "inboundsHint": "Served by the core now",
+    "sessions": "Open sessions",
+    "sessionsHint": "All inbounds together",
+    "version": "Panel version",
+    "unreachable": "The panel cannot be reached",
+    "retry": "Try again",
+    "noCore": "The core is not configured yet. It starts with the first inbound.",
+    "system": "System resources",
+    "systemSoon": "CPU, memory and network charts arrive in phase 6."
+  },
+  "placeholder": {
+    "title": "On its way",
+    "body": "“{{page}}” is built in phase {{phase}} of the roadmap."
+  },
+  "notFound": { "title": "Page not found", "back": "Back to the dashboard" }
+}
