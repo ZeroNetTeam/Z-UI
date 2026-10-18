@@ -326,6 +326,7 @@ pub async fn delete(
     }
     let applied = core_config::apply(&state, &inbounds).await?;
     state.db().delete_inbound(id).await?;
+    state.db().forget_inbound_in_groups(id).await?;
     Ok(Json(applied))
 }
 

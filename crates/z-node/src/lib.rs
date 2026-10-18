@@ -42,6 +42,9 @@ pub trait Node: Send + Sync {
     /// End every open session of an account. Returns how many.
     async fn end_sessions(&self, email: &str) -> usize;
 
+    /// End an account's sessions from one client address. Returns how many.
+    async fn end_address(&self, email: &str, address: std::net::IpAddr) -> usize;
+
     /// Hold an account to these bytes per second (0 = no limit).
     async fn set_limit(&self, email: &str, uplink: u64, downlink: u64);
 

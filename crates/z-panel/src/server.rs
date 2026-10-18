@@ -37,6 +37,8 @@ struct Inner {
     tls: bool,
     /// Held while the core's configuration changes, one change at a time.
     core_lock: tokio::sync::Mutex<()>,
+    /// Users' addresses against their IP limits ([`crate::jobs`]).
+    address_book: Mutex<crate::jobs::AddressBook>,
 }
 
 impl AppState {
@@ -58,6 +60,7 @@ impl AppState {
                 pending_totp: Mutex::new(HashMap::new()),
                 tls,
                 core_lock: tokio::sync::Mutex::new(()),
+                address_book: Mutex::new(Default::default()),
             }),
         }
     }
@@ -88,6 +91,13 @@ impl AppState {
 
     pub fn core_lock(&self) -> &tokio::sync::Mutex<()> {
         &self.inner.core_lock
+    }
+
+    pub fn address_book(&self) -> std::sync::MutexGuard<'_, crate::jobs::AddressBook> {
+        self.inner
+            .address_book
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     pub fn setup_token(&self) -> std::sync::MutexGuard<'_, Option<String>> {
@@ -159,6 +169,7 @@ pub mod testing {
 
     pub struct Panel {
         pub app: Router,
+        pub state: AppState,
         dir: std::path::PathBuf,
     }
 
@@ -214,7 +225,8 @@ pub mod testing {
         );
         *state.setup_token() = Some("setup-token".into());
         Panel {
-            app: router(state),
+            app: router(state.clone()),
+            state,
             dir,
         }
     }

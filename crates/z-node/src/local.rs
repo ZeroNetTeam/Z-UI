@@ -167,6 +167,10 @@ impl Node for LocalNode {
         self.stats.accounts.end_sessions(email)
     }
 
+    async fn end_address(&self, email: &str, address: std::net::IpAddr) -> usize {
+        self.stats.accounts.end_address(email, address)
+    }
+
     async fn set_limit(&self, email: &str, uplink: u64, downlink: u64) {
         self.stats.accounts.set_limit(email, uplink, downlink);
     }

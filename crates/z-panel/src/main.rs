@@ -1,11 +1,13 @@
 //! `z-ui` — the Z-UI panel.
 
+mod accounts;
 mod api;
 mod assets;
 mod auth;
 mod config;
 mod core_config;
 mod error;
+mod jobs;
 mod server;
 mod tls;
 
@@ -65,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(applied) => tracing::info!(?applied, "core configured from the database"),
         Err(error) => tracing::error!(error = %error.message, "the core did not start"),
     }
+    jobs::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
         .with_context(|| format!("listening on {}", config.listen))?;

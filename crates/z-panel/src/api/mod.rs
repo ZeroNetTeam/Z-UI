@@ -3,10 +3,12 @@
 
 mod auth;
 mod certificates;
+mod groups;
 mod hosts;
 mod inbounds;
 mod keys;
 mod tools;
+mod users;
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -56,6 +58,28 @@ pub fn router() -> Router<AppState> {
         .route("/keys/password", get(keys::password))
         .route("/keys/vless-encryption", get(keys::vless_encryption))
         .route("/tools/reality-check", get(tools::reality_check))
+        .route("/users", get(users::list).post(users::create))
+        .route("/users/counts", get(users::counts))
+        .route("/users/bulk", post(users::bulk))
+        .route("/users/bulk-create", post(users::bulk_create))
+        .route(
+            "/users/{id}",
+            get(users::get).put(users::update).delete(users::delete),
+        )
+        .route("/users/{id}/reset", post(users::reset))
+        .route("/users/{id}/revoke", post(users::revoke))
+        .route("/users/{id}/end-sessions", post(users::end_sessions))
+        .route("/users/{id}/usage", get(users::usage))
+        .route("/groups", get(groups::list).post(groups::create))
+        .route("/groups/{id}", put(groups::update).delete(groups::delete))
+        .route(
+            "/templates",
+            get(groups::templates).post(groups::create_template),
+        )
+        .route(
+            "/templates/{id}",
+            put(groups::update_template).delete(groups::delete_template),
+        )
         .fallback(|| async { StatusCode::NOT_FOUND })
 }
 

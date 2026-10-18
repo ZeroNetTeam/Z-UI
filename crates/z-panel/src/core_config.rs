@@ -76,6 +76,10 @@ fn has_ipv6() -> bool {
     })
 }
 
+/// The setting that lets clients reach the server's own and private
+/// networks (`true`), which the template otherwise blocks.
+pub const ALLOW_PRIVATE: &str = "core.allow_private";
+
 /// The everything-but-inbounds part of the configuration. Phase 7 makes it
 /// editable; for now a server that sends its clients out directly and never
 /// into the server's own network.
@@ -107,10 +111,11 @@ fn template() -> Value {
 }
 
 /// The core's view of one stored inbound: panel keys resolved or removed,
-/// and an empty account list (users arrive in phase 4).
+/// and `clients` as its accounts.
 fn core_inbound(
     inbound: &Inbound,
     certificates: &HashMap<i64, Certificate>,
+    clients: Vec<Value>,
 ) -> Result<Value, ApiError> {
     let tag = inbound.tag.as_str();
     let mut settings = parse(&inbound.settings, "settings", tag)?;
@@ -127,7 +132,10 @@ fn core_inbound(
         settings_map.remove(*key);
     }
     if let Some(key) = accounts_key(&inbound.protocol) {
-        settings_map.insert(key.into(), json!([]));
+        // WireGuard peers are not made from users yet: keep those written.
+        if inbound.protocol != "wireguard" || !settings_map.contains_key(key) {
+            settings_map.insert(key.into(), Value::Array(clients));
+        }
     }
 
     if let Some(stream) = stream.as_object_mut() {
@@ -171,16 +179,22 @@ fn core_inbound(
     Ok(Value::Object(out))
 }
 
-/// The whole configuration for `inbounds` (the enabled ones).
+/// The whole configuration for `inbounds` (the enabled ones), with the
+/// accounts of `users` their `groups` give them.
 pub fn build(
     inbounds: &[Inbound],
     certificates: &HashMap<i64, Certificate>,
+    users: &[z_db::User],
+    groups: &[z_db::AccessGroup],
 ) -> Result<Value, ApiError> {
     let mut config = template();
     let built = inbounds
         .iter()
         .filter(|inbound| inbound.enabled)
-        .map(|inbound| core_inbound(inbound, certificates))
+        .map(|inbound| {
+            let clients = crate::accounts::clients_of(inbound, users, groups);
+            core_inbound(inbound, certificates, clients)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     config["inbounds"] = Value::Array(built);
     Ok(config)
@@ -226,7 +240,12 @@ pub async fn apply(state: &AppState, inbounds: &[Inbound]) -> Result<Applied, Ap
         .into_iter()
         .map(|certificate| (certificate.id, certificate))
         .collect();
-    let config = build(inbounds, &certificates)?;
+    let users = state.db().all_users().await?;
+    let groups = state.db().access_groups().await?;
+    let mut config = build(inbounds, &certificates, &users, &groups)?;
+    if state.db().setting(ALLOW_PRIVATE).await?.as_deref() == Some("true") {
+        config["routing"]["rules"] = json!([]);
+    }
     // The core's own compiler is the judge of what it can run.
     zero_config::compile_config(&config, zero_core::GenerationId(1))
         .map_err(|error| ApiError::bad_request("invalid_inbound", error))?;
@@ -242,7 +261,9 @@ pub async fn apply(state: &AppState, inbounds: &[Inbound]) -> Result<Applied, Ap
 pub async fn sync(state: &AppState) -> Result<Applied, ApiError> {
     let _guard = state.core_lock().lock().await;
     let inbounds = state.db().inbounds().await?;
-    apply(state, &inbounds).await
+    let applied = apply(state, &inbounds).await?;
+    crate::accounts::apply_limits(state).await?;
+    Ok(applied)
 }
 
 #[cfg(test)]
@@ -298,7 +319,7 @@ mod tests {
         );
         let mut off = inbound("off", 9000, "vmess", json!({}), json!({}));
         off.enabled = false;
-        let config = build(&[reality, tls, off], &certificates).unwrap();
+        let config = build(&[reality, tls, off], &certificates, &[], &[]).unwrap();
         let inbounds = config["inbounds"].as_array().unwrap();
         assert_eq!(inbounds.len(), 2, "a disabled inbound is left out");
         assert_eq!(
@@ -326,7 +347,7 @@ mod tests {
             json!({}),
             json!({"security": "tls", "tlsSettings": {"certificateId": 3}}),
         );
-        let error = build(&[tls], &HashMap::new()).unwrap_err();
+        let error = build(&[tls], &HashMap::new(), &[], &[]).unwrap_err();
         assert_eq!(error.code, "certificate_missing");
     }
 
@@ -367,7 +388,7 @@ mod tests {
                 "shortIds": [zero_runtime::keys::short_id(8).unwrap()],
             }}),
         );
-        let config = build(&[reality], &HashMap::new()).unwrap();
+        let config = build(&[reality], &HashMap::new(), &[], &[]).unwrap();
         zero_config::compile_config(&config, zero_core::GenerationId(1)).unwrap();
     }
 }
