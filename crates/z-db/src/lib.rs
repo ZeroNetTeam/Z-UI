@@ -2,8 +2,13 @@
 //!
 //! One pool over SQLite (the default: one file next to the binary, nothing
 //! to install) or PostgreSQL (for big installations), chosen by the URL.
-//! Migrations are one set of SQL that both accept; they run on every start
-//! and are no-ops once applied.
+//! Each database has its own migrations (they differ only where the two
+//! disagree, such as how an id counts up); they run on every start and are
+//! no-ops once applied.
+
+mod admins;
+
+pub use admins::Admin;
 
 use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{AnyPool, Row};
@@ -22,6 +27,13 @@ pub enum DbError {
 #[derive(Clone)]
 pub struct Database {
     pool: AnyPool,
+}
+
+/// Seconds since the Unix epoch, as the database stores times.
+pub fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 impl Database {
@@ -50,7 +62,11 @@ impl Database {
             .max_connections(connections)
             .connect(&url)
             .await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        if url.starts_with("sqlite:") {
+            sqlx::migrate!("./migrations/sqlite").run(&pool).await?;
+        } else {
+            sqlx::migrate!("./migrations/postgres").run(&pool).await?;
+        }
         Ok(Self { pool })
     }
 

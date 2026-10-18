@@ -26,6 +26,18 @@ tower-http = { workspace = true }
 rust-embed = { workspace = true }
 mime_guess = { workspace = true }
 clap = { workspace = true }
+argon2 = { workspace = true }
+jsonwebtoken = { workspace = true }
+hmac = { workspace = true }
+sha1 = { workspace = true }
+qrcode = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+tokio-rustls = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 
 [dev-dependencies]
 http-body-util = "0.1"

@@ -11,7 +11,7 @@ pub struct PanelConfig {
     pub listen: SocketAddr,
 
     /// Where the database and the core's files live.
-    #[arg(long, env = "ZUI_DATA_DIR", default_value = "data")]
+    #[arg(long, env = "ZUI_DATA_DIR", default_value = "data", global = true)]
     pub data_dir: PathBuf,
 
     /// The panel is served only under this path, and answers 404 anywhere
@@ -21,8 +21,40 @@ pub struct PanelConfig {
 
     /// `sqlite://…` or `postgres://…`; defaults to `z-ui.db` in the data
     /// directory.
-    #[arg(long, env = "ZUI_DATABASE_URL")]
+    #[arg(long, env = "ZUI_DATABASE_URL", global = true)]
     pub database_url: Option<String>,
+
+    /// Serve HTTPS with this certificate chain (PEM); needs `--key`.
+    #[arg(long, env = "ZUI_CERT_FILE", requires = "key")]
+    pub cert: Option<PathBuf>,
+
+    /// The private key (PEM) for `--cert`.
+    #[arg(long, env = "ZUI_KEY_FILE", requires = "cert")]
+    pub key: Option<PathBuf>,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum Command {
+    /// Manage admins from the server, for when nobody can sign in.
+    #[command(subcommand)]
+    Admin(AdminCommand),
+}
+
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum AdminCommand {
+    /// Set a new password for an admin (a random one is printed if none is
+    /// given) and end their sessions.
+    ResetPassword {
+        username: String,
+        #[arg(long, env = "ZUI_NEW_PASSWORD")]
+        password: Option<String>,
+        /// Also turn two-factor sign-in off, for a lost authenticator.
+        #[arg(long)]
+        disable_2fa: bool,
+    },
 }
 
 impl PanelConfig {

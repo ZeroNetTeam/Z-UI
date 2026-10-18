@@ -47,7 +47,7 @@ export const navigation: NavGroup[] = [
     label: "configuration",
     items: [
       { to: "/core", label: "core", icon: CpuIcon, phase: 7 },
-      { to: "/settings", label: "settings", icon: SettingsIcon, phase: 2 },
+      { to: "/settings", label: "settings", icon: SettingsIcon },
     ],
   },
 ];

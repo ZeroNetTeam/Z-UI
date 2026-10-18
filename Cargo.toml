@@ -36,6 +36,18 @@ rust-embed = "8"
 mime_guess = "2"
 clap = { version = "4", features = ["derive", "env"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "postgres", "any", "migrate", "macros"] }
+argon2 = "0.6"
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+hmac = "0.12"
+sha1 = "0.10"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+rand = "0.8"
+hex = "0.4"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+hyper = "1"
+hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] }
 
 # zray-core patches crates.io dependencies, and Cargo applies only the root
 # workspace's patches: the panel must carry the same ones. Keep in step with
@@ -54,4 +66,11 @@ opt-level = "s"
 [profile.release.package.smoltcp]
 opt-level = 3
 [profile.release.package.netstack-smoltcp]
+opt-level = 3
+
+# Argon2 is meant to be slow; unoptimised it is slow enough to drag every
+# test that signs in.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
 opt-level = 3

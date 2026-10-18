@@ -39,8 +39,31 @@ built dashboard the binary serves a page saying how to build one.
 | `--base-path` | `ZUI_BASE_PATH` | `/` | The panel answers only under this path, 404 elsewhere |
 | `--data-dir` | `ZUI_DATA_DIR` | `data` | Database and core files |
 | `--database-url` | `ZUI_DATABASE_URL` | `sqlite://<data-dir>/z-ui.db` | Or `postgres://…` |
+| `--cert`, `--key` | `ZUI_CERT_FILE`, `ZUI_KEY_FILE` | | Serve HTTPS with this PEM certificate chain and key |
 
 Logging follows `ZUI_LOG` (e.g. `ZUI_LOG=debug`).
+
+### First start
+
+A new panel has no admin. Whoever reached it first could otherwise claim it,
+so the first admin can only be created from a one-time link printed in the
+log:
+
+```text
+WARN no admin yet; create one at http://0.0.0.0:2053/my-secret-path/setup?token=…
+```
+
+### Locked out
+
+From the server itself:
+
+```sh
+./z-ui admin reset-password admin                 # prints a new random password
+./z-ui admin reset-password admin --disable-2fa   # for a lost authenticator
+```
+
+Sign-in is limited to 5 failures per address and 20 per username in 15
+minutes; sessions last 24 hours and end on a password change.
 
 ## Layout
 

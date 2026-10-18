@@ -1,5 +1,8 @@
 {
-  "app": { "name": "Z-UI", "tagline": "zray-core control panel" },
+  "app": {
+    "name": "Z-UI",
+    "tagline": "zray-core control panel"
+  },
   "nav": {
     "platform": "Platform",
     "configuration": "Configuration",
@@ -44,5 +47,65 @@
     "title": "On its way",
     "body": "“{{page}}” is built in phase {{phase}} of the roadmap."
   },
-  "notFound": { "title": "Page not found", "back": "Back to the dashboard" }
+  "notFound": {
+    "title": "Page not found",
+    "back": "Back to the dashboard"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signInTitle": "Sign in to the panel",
+    "signInSubtitle": "Use your admin account",
+    "username": "Username",
+    "password": "Password",
+    "code": "Two-factor code",
+    "codeHint": "The 6 digits from your authenticator app",
+    "signingIn": "Signing in…",
+    "setupTitle": "Set up the panel",
+    "setupSubtitle": "Create the panel's first admin. This account can do everything.",
+    "confirmPassword": "Repeat the password",
+    "passwordHint": "At least 8 characters",
+    "create": "Create admin and sign in",
+    "usernameHint": "3 to 32 letters, digits, '.', '-' or '_'",
+    "missingToken": "This page opens only from the setup link. Find it in the panel's log on the server.",
+    "mismatch": "The two passwords differ",
+    "signOut": "Sign out",
+    "account": "Account"
+  },
+  "errors": {
+    "unknown": "Something went wrong. Try again.",
+    "invalid_credentials": "Wrong username or password.",
+    "totp_required": "Enter your two-factor code.",
+    "totp_invalid": "The two-factor code is wrong.",
+    "too_many_attempts": "Too many failed attempts. Try again in {{minutes}} minutes.",
+    "setup_token": "The setup link is wrong. Open the one printed in the panel's log.",
+    "setup_done": "This panel is already set up.",
+    "weak_password": "A password needs at least 8 characters.",
+    "invalid_username": "A username is 3 to 32 letters, digits, '.', '-' or '_'.",
+    "totp_expired": "Setup timed out. Start again.",
+    "unauthorized": "Sign in again.",
+    "internal": "Server error. Check the panel's log."
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Your account's security",
+    "passwordTitle": "Change password",
+    "passwordBody": "Changing it signs out every other session of yours.",
+    "current": "Current password",
+    "new": "New password",
+    "save": "Save",
+    "saved": "Password changed.",
+    "totpTitle": "Two-factor sign-in",
+    "totpOff": "Off",
+    "totpOn": "On",
+    "totpBody": "Besides the password, signing in will need a code from your authenticator app.",
+    "totpStart": "Turn on",
+    "totpScan": "Scan this QR code with an authenticator app (Google Authenticator, Aegis, …), then enter the 6-digit code.",
+    "totpSecret": "Or type this key in by hand:",
+    "totpConfirm": "Confirm and turn on",
+    "totpCancel": "Cancel",
+    "totpDisable": "Turn off",
+    "totpDisableBody": "Enter your password and a current code to turn it off.",
+    "copied": "Copied",
+    "copy": "Copy"
+  }
 }

@@ -57,3 +57,19 @@ export function DropdownMenuRadioItem({
     </Menu.RadioItem>
   );
 }
+
+export function DropdownMenuItem({ className, ...props }: ComponentProps<typeof Menu.Item>) {
+  return (
+    <Menu.Item
+      className={cn(
+        "relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:size-4",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export function DropdownMenuSeparator({ className, ...props }: ComponentProps<typeof Menu.Separator>) {
+  return <Menu.Separator className={cn("-mx-1 my-1 h-px bg-border", className)} {...props} />;
+}
