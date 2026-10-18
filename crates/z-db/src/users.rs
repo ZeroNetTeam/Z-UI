@@ -1,0 +1,696 @@
+//! Users, the access groups that give them inbounds, user templates, and
+//! hourly usage.
+
+use std::collections::HashMap;
+
+use sqlx::any::AnyRow;
+use sqlx::Row;
+
+use crate::{now, Database, DbError};
+
+/// A user as stored, with the access groups it belongs to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct User {
+    pub id: i64,
+    pub username: String,
+    pub status: String,
+    pub uuid: String,
+    pub password: String,
+    pub sub_token: String,
+    pub data_limit: i64,
+    pub used_traffic: i64,
+    pub lifetime_traffic: i64,
+    pub expire_at: Option<i64>,
+    pub on_hold_duration: Option<i64>,
+    pub on_hold_timeout: Option<i64>,
+    pub reset_strategy: String,
+    pub last_reset_at: Option<i64>,
+    pub ip_limit: i64,
+    pub speed_up: i64,
+    pub speed_down: i64,
+    pub note: String,
+    pub online_at: Option<i64>,
+    pub admin_id: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub group_ids: Vec<i64>,
+}
+
+/// What an admin sets on a user. Counters, credentials and times the panel
+/// keeps itself are not here.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UserFields {
+    pub username: String,
+    pub status: String,
+    pub data_limit: i64,
+    pub expire_at: Option<i64>,
+    pub on_hold_duration: Option<i64>,
+    pub on_hold_timeout: Option<i64>,
+    pub reset_strategy: String,
+    pub ip_limit: i64,
+    pub speed_up: i64,
+    pub speed_down: i64,
+    pub note: String,
+    pub group_ids: Vec<i64>,
+}
+
+/// What can narrow a list of users.
+#[derive(Debug, Clone, Default)]
+pub struct UserQuery {
+    /// Part of the username or the note.
+    pub search: Option<String>,
+    pub status: Option<String>,
+    pub group_id: Option<i64>,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+macro_rules! user_columns {
+    () => {
+        "id, username, status, uuid, password, sub_token, data_limit, used_traffic, lifetime_traffic, \
+         expire_at, on_hold_duration, on_hold_timeout, reset_strategy, last_reset_at, ip_limit, \
+         speed_up, speed_down, note, online_at, admin_id, created_at, updated_at"
+    };
+}
+
+fn user(row: AnyRow) -> Result<User, sqlx::Error> {
+    Ok(User {
+        id: row.try_get("id")?,
+        username: row.try_get("username")?,
+        status: row.try_get("status")?,
+        uuid: row.try_get("uuid")?,
+        password: row.try_get("password")?,
+        sub_token: row.try_get("sub_token")?,
+        data_limit: row.try_get("data_limit")?,
+        used_traffic: row.try_get("used_traffic")?,
+        lifetime_traffic: row.try_get("lifetime_traffic")?,
+        expire_at: row.try_get("expire_at")?,
+        on_hold_duration: row.try_get("on_hold_duration")?,
+        on_hold_timeout: row.try_get("on_hold_timeout")?,
+        reset_strategy: row.try_get("reset_strategy")?,
+        last_reset_at: row.try_get("last_reset_at")?,
+        ip_limit: row.try_get("ip_limit")?,
+        speed_up: row.try_get("speed_up")?,
+        speed_down: row.try_get("speed_down")?,
+        note: row.try_get("note")?,
+        online_at: row.try_get("online_at")?,
+        admin_id: row.try_get("admin_id")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        group_ids: Vec::new(),
+    })
+}
+
+/// An access group and the inbounds it gives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccessGroup {
+    pub id: i64,
+    pub name: String,
+    pub all_inbounds: bool,
+    pub inbound_ids: Vec<i64>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UserTemplate {
+    pub id: i64,
+    pub name: String,
+    pub data_limit: i64,
+    pub expire_days: i64,
+    pub on_hold: bool,
+    pub reset_strategy: String,
+    pub ip_limit: i64,
+    pub speed_up: i64,
+    pub speed_down: i64,
+    pub group_ids: Vec<i64>,
+    pub created_at: i64,
+}
+
+macro_rules! template_columns {
+    () => {
+        "id, name, data_limit, expire_days, on_hold, reset_strategy, ip_limit, speed_up, speed_down, group_ids, created_at"
+    };
+}
+
+fn template(row: AnyRow) -> Result<UserTemplate, sqlx::Error> {
+    let ids: String = row.try_get("group_ids")?;
+    Ok(UserTemplate {
+        id: row.try_get("id")?,
+        name: row.try_get("name")?,
+        data_limit: row.try_get("data_limit")?,
+        expire_days: row.try_get("expire_days")?,
+        on_hold: row.try_get::<i64, _>("on_hold")? != 0,
+        reset_strategy: row.try_get("reset_strategy")?,
+        ip_limit: row.try_get("ip_limit")?,
+        speed_up: row.try_get("speed_up")?,
+        speed_down: row.try_get("speed_down")?,
+        group_ids: ids
+            .split(',')
+            .filter_map(|id| id.trim().parse().ok())
+            .collect(),
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+fn ids_text(ids: &[i64]) -> String {
+    ids.iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Bytes one user moved in one hour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsagePoint {
+    pub hour: i64,
+    pub uplink: i64,
+    pub downlink: i64,
+}
+
+/// Bytes counted for a user since the last time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrafficDelta {
+    pub user_id: i64,
+    pub uplink: i64,
+    pub downlink: i64,
+}
+
+impl Database {
+    /// Every user's access groups, by user id.
+    async fn user_group_map(&self) -> Result<HashMap<i64, Vec<i64>>, DbError> {
+        let rows =
+            sqlx::query("SELECT user_id, group_id FROM user_access_groups ORDER BY group_id")
+                .fetch_all(self.pool())
+                .await?;
+        let mut map: HashMap<i64, Vec<i64>> = HashMap::new();
+        for row in rows {
+            map.entry(row.try_get("user_id")?)
+                .or_default()
+                .push(row.try_get("group_id")?);
+        }
+        Ok(map)
+    }
+
+    async fn with_groups(&self, mut users: Vec<User>) -> Result<Vec<User>, DbError> {
+        let mut map = self.user_group_map().await?;
+        for user in &mut users {
+            user.group_ids = map.remove(&user.id).unwrap_or_default();
+        }
+        Ok(users)
+    }
+
+    /// Every user, with their groups: what the core's configuration and the
+    /// enforcement pass read.
+    pub async fn all_users(&self) -> Result<Vec<User>, DbError> {
+        let rows = sqlx::query(concat!(
+            "SELECT ",
+            user_columns!(),
+            " FROM users ORDER BY id"
+        ))
+        .fetch_all(self.pool())
+        .await?;
+        let users = rows.into_iter().map(user).collect::<Result<_, _>>()?;
+        self.with_groups(users).await
+    }
+
+    /// One page of users, newest first, and how many match in all.
+    pub async fn users(&self, query: &UserQuery) -> Result<(Vec<User>, i64), DbError> {
+        // Placeholders are numbered by position; a filter that is absent
+        // still binds, as a value that matches everything.
+        let search = query
+            .search
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("%{}%", s.to_lowercase()));
+        let filter = concat!(
+            " WHERE ($1 = '' OR LOWER(username) LIKE $1 OR LOWER(note) LIKE $1)",
+            " AND ($2 = '' OR status = $2)",
+            " AND ($3 = 0 OR id IN (SELECT user_id FROM user_access_groups WHERE group_id = $3))"
+        );
+        let search = search.unwrap_or_default();
+        let status = query.status.clone().unwrap_or_default();
+        let group = query.group_id.unwrap_or(0);
+        let total: i64 = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT COUNT(*) FROM users{filter}"
+        )))
+        .bind(&search)
+        .bind(&status)
+        .bind(group)
+        .fetch_one(self.pool())
+        .await?
+        .try_get(0)?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT {} FROM users{filter} ORDER BY id DESC LIMIT $4 OFFSET $5",
+            user_columns!()
+        )))
+        .bind(&search)
+        .bind(&status)
+        .bind(group)
+        .bind(query.limit.clamp(1, 500))
+        .bind(query.offset.max(0))
+        .fetch_all(self.pool())
+        .await?;
+        let users = rows.into_iter().map(user).collect::<Result<_, _>>()?;
+        Ok((self.with_groups(users).await?, total))
+    }
+
+    async fn one_user(&self, row: Option<AnyRow>) -> Result<Option<User>, DbError> {
+        let Some(row) = row else { return Ok(None) };
+        let mut user = user(row)?;
+        user.group_ids = sqlx::query(
+            "SELECT group_id FROM user_access_groups WHERE user_id = $1 ORDER BY group_id",
+        )
+        .bind(user.id)
+        .fetch_all(self.pool())
+        .await?
+        .into_iter()
+        .map(|row| row.try_get(0))
+        .collect::<Result<_, _>>()?;
+        Ok(Some(user))
+    }
+
+    pub async fn user(&self, id: i64) -> Result<Option<User>, DbError> {
+        let row = sqlx::query(concat!(
+            "SELECT ",
+            user_columns!(),
+            " FROM users WHERE id = $1"
+        ))
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await?;
+        self.one_user(row).await
+    }
+
+    pub async fn user_by_token(&self, token: &str) -> Result<Option<User>, DbError> {
+        let row = sqlx::query(concat!(
+            "SELECT ",
+            user_columns!(),
+            " FROM users WHERE sub_token = $1"
+        ))
+        .bind(token)
+        .fetch_optional(self.pool())
+        .await?;
+        self.one_user(row).await
+    }
+
+    /// Add a user with its credentials. Fails if the username is taken.
+    pub async fn create_user(
+        &self,
+        fields: &UserFields,
+        uuid: &str,
+        password: &str,
+        sub_token: &str,
+        admin_id: Option<i64>,
+    ) -> Result<User, DbError> {
+        let now = now();
+        let mut tx = self.pool().begin().await?;
+        let row = sqlx::query(concat!(
+            "INSERT INTO users (username, status, uuid, password, sub_token, data_limit, expire_at, ",
+            "on_hold_duration, on_hold_timeout, reset_strategy, last_reset_at, ip_limit, speed_up, speed_down, ",
+            "note, admin_id, created_at, updated_at) ",
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $11, $11) RETURNING id"
+        ))
+        .bind(&fields.username)
+        .bind(&fields.status)
+        .bind(uuid)
+        .bind(password)
+        .bind(sub_token)
+        .bind(fields.data_limit)
+        .bind(fields.expire_at)
+        .bind(fields.on_hold_duration)
+        .bind(fields.on_hold_timeout)
+        .bind(&fields.reset_strategy)
+        .bind(now)
+        .bind(fields.ip_limit)
+        .bind(fields.speed_up)
+        .bind(fields.speed_down)
+        .bind(&fields.note)
+        .bind(admin_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let id: i64 = row.try_get(0)?;
+        for group in &fields.group_ids {
+            sqlx::query("INSERT INTO user_access_groups (user_id, group_id) VALUES ($1, $2)")
+                .bind(id)
+                .bind(group)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(self.user(id).await?.expect("just created"))
+    }
+
+    pub async fn update_user(&self, id: i64, fields: &UserFields) -> Result<Option<User>, DbError> {
+        let mut tx = self.pool().begin().await?;
+        let changed = sqlx::query(concat!(
+            "UPDATE users SET username = $1, status = $2, data_limit = $3, expire_at = $4, ",
+            "on_hold_duration = $5, on_hold_timeout = $6, reset_strategy = $7, ip_limit = $8, ",
+            "speed_up = $9, speed_down = $10, note = $11, updated_at = $12 WHERE id = $13"
+        ))
+        .bind(&fields.username)
+        .bind(&fields.status)
+        .bind(fields.data_limit)
+        .bind(fields.expire_at)
+        .bind(fields.on_hold_duration)
+        .bind(fields.on_hold_timeout)
+        .bind(&fields.reset_strategy)
+        .bind(fields.ip_limit)
+        .bind(fields.speed_up)
+        .bind(fields.speed_down)
+        .bind(&fields.note)
+        .bind(now())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if changed == 0 {
+            return Ok(None);
+        }
+        sqlx::query("DELETE FROM user_access_groups WHERE user_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        for group in &fields.group_ids {
+            sqlx::query("INSERT INTO user_access_groups (user_id, group_id) VALUES ($1, $2)")
+                .bind(id)
+                .bind(group)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        self.user(id).await
+    }
+
+    pub async fn delete_user(&self, id: i64) -> Result<bool, DbError> {
+        let mut tx = self.pool().begin().await?;
+        for table in [
+            "DELETE FROM user_access_groups WHERE user_id = $1",
+            "DELETE FROM user_usage WHERE user_id = $1",
+        ] {
+            sqlx::query(table).bind(id).execute(&mut *tx).await?;
+        }
+        let deleted = sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        tx.commit().await?;
+        Ok(deleted > 0)
+    }
+
+    pub async fn set_user_status(&self, id: i64, status: &str) -> Result<(), DbError> {
+        sqlx::query("UPDATE users SET status = $1, updated_at = $2 WHERE id = $3")
+            .bind(status)
+            .bind(now())
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Start an on-hold user's time: it expires `expire_at` from now on.
+    pub async fn start_user_time(&self, id: i64, expire_at: i64) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE users SET status = 'active', expire_at = $1, on_hold_duration = NULL, \
+             on_hold_timeout = NULL, updated_at = $2 WHERE id = $3",
+        )
+        .bind(expire_at)
+        .bind(now())
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Zero the period's traffic, as a reset or a new period does.
+    pub async fn reset_user_traffic(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE users SET used_traffic = 0, last_reset_at = $1, updated_at = $1 WHERE id = $2",
+        )
+        .bind(now())
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// New credentials and subscription link: the old ones stop working.
+    pub async fn set_user_credentials(
+        &self,
+        id: i64,
+        uuid: &str,
+        password: &str,
+        sub_token: &str,
+    ) -> Result<(), DbError> {
+        sqlx::query("UPDATE users SET uuid = $1, password = $2, sub_token = $3, updated_at = $4 WHERE id = $5")
+            .bind(uuid)
+            .bind(password)
+            .bind(sub_token)
+            .bind(now())
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Add counted bytes to users and to this hour's usage, in one go.
+    pub async fn add_traffic(&self, deltas: &[TrafficDelta]) -> Result<(), DbError> {
+        if deltas.is_empty() {
+            return Ok(());
+        }
+        let hour = now() / 3600 * 3600;
+        let mut tx = self.pool().begin().await?;
+        for delta in deltas {
+            let total = delta.uplink + delta.downlink;
+            sqlx::query(
+                "UPDATE users SET used_traffic = used_traffic + $1, lifetime_traffic = lifetime_traffic + $1 WHERE id = $2",
+            )
+            .bind(total)
+            .bind(delta.user_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO user_usage (user_id, hour, uplink, downlink) VALUES ($1, $2, $3, $4) \
+                 ON CONFLICT (user_id, hour) DO UPDATE SET uplink = user_usage.uplink + excluded.uplink, \
+                 downlink = user_usage.downlink + excluded.downlink",
+            )
+            .bind(delta.user_id)
+            .bind(hour)
+            .bind(delta.uplink)
+            .bind(delta.downlink)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn set_users_online(&self, ids: &[i64]) -> Result<(), DbError> {
+        let now = now();
+        let mut tx = self.pool().begin().await?;
+        for id in ids {
+            sqlx::query("UPDATE users SET online_at = $1 WHERE id = $2")
+                .bind(now)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// A user's hourly usage since `since`, oldest first.
+    pub async fn user_usage(&self, id: i64, since: i64) -> Result<Vec<UsagePoint>, DbError> {
+        let rows = sqlx::query(
+            "SELECT hour, uplink, downlink FROM user_usage WHERE user_id = $1 AND hour >= $2 ORDER BY hour",
+        )
+        .bind(id)
+        .bind(since)
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(UsagePoint {
+                    hour: row.try_get("hour")?,
+                    uplink: row.try_get("uplink")?,
+                    downlink: row.try_get("downlink")?,
+                })
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(DbError::from)
+    }
+
+    /// How many users there are in each status.
+    pub async fn user_counts(&self) -> Result<HashMap<String, i64>, DbError> {
+        let rows = sqlx::query("SELECT status, COUNT(*) AS n FROM users GROUP BY status")
+            .fetch_all(self.pool())
+            .await?;
+        rows.into_iter()
+            .map(|row| Ok((row.try_get("status")?, row.try_get("n")?)))
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(DbError::from)
+    }
+
+    pub async fn access_groups(&self) -> Result<Vec<AccessGroup>, DbError> {
+        let groups =
+            sqlx::query("SELECT id, name, all_inbounds, created_at FROM access_groups ORDER BY id")
+                .fetch_all(self.pool())
+                .await?;
+        let links = sqlx::query(
+            "SELECT group_id, inbound_id FROM access_group_inbounds ORDER BY inbound_id",
+        )
+        .fetch_all(self.pool())
+        .await?;
+        let mut inbounds: HashMap<i64, Vec<i64>> = HashMap::new();
+        for link in links {
+            inbounds
+                .entry(link.try_get("group_id")?)
+                .or_default()
+                .push(link.try_get("inbound_id")?);
+        }
+        groups
+            .into_iter()
+            .map(|row| {
+                let id: i64 = row.try_get("id")?;
+                Ok(AccessGroup {
+                    id,
+                    name: row.try_get("name")?,
+                    all_inbounds: row.try_get::<i64, _>("all_inbounds")? != 0,
+                    inbound_ids: inbounds.remove(&id).unwrap_or_default(),
+                    created_at: row.try_get("created_at")?,
+                })
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(DbError::from)
+    }
+
+    /// Create (`id` None) or replace an access group.
+    pub async fn save_access_group(
+        &self,
+        id: Option<i64>,
+        name: &str,
+        all_inbounds: bool,
+        inbound_ids: &[i64],
+    ) -> Result<i64, DbError> {
+        let mut tx = self.pool().begin().await?;
+        let id = match id {
+            Some(id) => {
+                sqlx::query("UPDATE access_groups SET name = $1, all_inbounds = $2 WHERE id = $3")
+                    .bind(name)
+                    .bind(i64::from(all_inbounds))
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                id
+            }
+            None => sqlx::query("INSERT INTO access_groups (name, all_inbounds, created_at) VALUES ($1, $2, $3) RETURNING id")
+                .bind(name)
+                .bind(i64::from(all_inbounds))
+                .bind(now())
+                .fetch_one(&mut *tx)
+                .await?
+                .try_get(0)?,
+        };
+        sqlx::query("DELETE FROM access_group_inbounds WHERE group_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        for inbound in inbound_ids {
+            sqlx::query("INSERT INTO access_group_inbounds (group_id, inbound_id) VALUES ($1, $2)")
+                .bind(id)
+                .bind(inbound)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(id)
+    }
+
+    pub async fn delete_access_group(&self, id: i64) -> Result<bool, DbError> {
+        let mut tx = self.pool().begin().await?;
+        for statement in [
+            "DELETE FROM access_group_inbounds WHERE group_id = $1",
+            "DELETE FROM user_access_groups WHERE group_id = $1",
+        ] {
+            sqlx::query(statement).bind(id).execute(&mut *tx).await?;
+        }
+        let deleted = sqlx::query("DELETE FROM access_groups WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        tx.commit().await?;
+        Ok(deleted > 0)
+    }
+
+    /// Forget an inbound in every group, when it is deleted.
+    pub async fn forget_inbound_in_groups(&self, inbound_id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM access_group_inbounds WHERE inbound_id = $1")
+            .bind(inbound_id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn user_templates(&self) -> Result<Vec<UserTemplate>, DbError> {
+        let rows = sqlx::query(concat!(
+            "SELECT ",
+            template_columns!(),
+            " FROM user_templates ORDER BY id"
+        ))
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows.into_iter().map(template).collect::<Result<_, _>>()?)
+    }
+
+    /// Create (`template.id` 0) or replace a template; returns its id.
+    pub async fn save_user_template(&self, template: &UserTemplate) -> Result<i64, DbError> {
+        let groups = ids_text(&template.group_ids);
+        if template.id == 0 {
+            let row = sqlx::query(concat!(
+                "INSERT INTO user_templates (name, data_limit, expire_days, on_hold, reset_strategy, ip_limit, ",
+                "speed_up, speed_down, group_ids, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id"
+            ))
+            .bind(&template.name)
+            .bind(template.data_limit)
+            .bind(template.expire_days)
+            .bind(i64::from(template.on_hold))
+            .bind(&template.reset_strategy)
+            .bind(template.ip_limit)
+            .bind(template.speed_up)
+            .bind(template.speed_down)
+            .bind(&groups)
+            .bind(now())
+            .fetch_one(self.pool())
+            .await?;
+            return Ok(row.try_get(0)?);
+        }
+        sqlx::query(concat!(
+            "UPDATE user_templates SET name = $1, data_limit = $2, expire_days = $3, on_hold = $4, ",
+            "reset_strategy = $5, ip_limit = $6, speed_up = $7, speed_down = $8, group_ids = $9 WHERE id = $10"
+        ))
+        .bind(&template.name)
+        .bind(template.data_limit)
+        .bind(template.expire_days)
+        .bind(i64::from(template.on_hold))
+        .bind(&template.reset_strategy)
+        .bind(template.ip_limit)
+        .bind(template.speed_up)
+        .bind(template.speed_down)
+        .bind(&groups)
+        .bind(template.id)
+        .execute(self.pool())
+        .await?;
+        Ok(template.id)
+    }
+
+    pub async fn delete_user_template(&self, id: i64) -> Result<bool, DbError> {
+        let deleted = sqlx::query("DELETE FROM user_templates WHERE id = $1")
+            .bind(id)
+            .execute(self.pool())
+            .await?
+            .rows_affected();
+        Ok(deleted > 0)
+    }
+}

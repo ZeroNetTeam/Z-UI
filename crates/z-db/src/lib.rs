@@ -9,10 +9,12 @@
 mod admins;
 mod certificates;
 mod inbounds;
+mod users;
 
 pub use admins::Admin;
 pub use certificates::Certificate;
 pub use inbounds::{Host, HostFields, Inbound, InboundFields};
+pub use users::{AccessGroup, TrafficDelta, UsagePoint, User, UserFields, UserQuery, UserTemplate};
 
 use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{AnyPool, Row};
@@ -196,6 +198,126 @@ mod tests {
             Some(certificate.clone())
         );
         assert!(db.delete_certificate(certificate.id).await.unwrap());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn users_groups_traffic_and_templates() {
+        let dir = std::env::temp_dir().join(format!("z-db-users-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Database::open(&format!("sqlite://{}/panel.db", dir.display()))
+            .await
+            .unwrap();
+        let groups = db.access_groups().await.unwrap();
+        assert_eq!(groups.len(), 1, "a panel starts with the default group");
+        assert!(groups[0].all_inbounds);
+        let vip = db
+            .save_access_group(None, "vip", false, &[3, 4])
+            .await
+            .unwrap();
+
+        let fields = crate::UserFields {
+            username: "alice".into(),
+            status: "active".into(),
+            data_limit: 1000,
+            reset_strategy: "no_reset".into(),
+            group_ids: vec![groups[0].id, vip],
+            ..Default::default()
+        };
+        let alice = db
+            .create_user(&fields, "uuid-a", "pw-a", "token-a", None)
+            .await
+            .unwrap();
+        assert_eq!(alice.group_ids, vec![groups[0].id, vip]);
+        assert!(
+            db.create_user(&fields, "u", "p", "t", None).await.is_err(),
+            "usernames are unique"
+        );
+        let bob = db
+            .create_user(
+                &crate::UserFields {
+                    username: "bob".into(),
+                    note: "office".into(),
+                    group_ids: vec![vip],
+                    ..fields.clone()
+                },
+                "uuid-b",
+                "pw-b",
+                "token-b",
+                None,
+            )
+            .await
+            .unwrap();
+
+        let page = |search: &str, status: &str, group: i64| crate::UserQuery {
+            search: Some(search.into()),
+            status: Some(status.into()),
+            group_id: Some(group),
+            offset: 0,
+            limit: 50,
+        };
+        let (found, total) = db.users(&page("", "", 0)).await.unwrap();
+        assert_eq!((found.len(), total), (2, 2));
+        assert_eq!(found[0].username, "bob", "newest first");
+        assert_eq!(
+            db.users(&page("OFF", "", 0)).await.unwrap().1,
+            1,
+            "the note is searched"
+        );
+        assert_eq!(db.users(&page("", "", groups[0].id)).await.unwrap().1, 1);
+        db.set_user_status(bob.id, "disabled").await.unwrap();
+        assert_eq!(
+            db.users(&page("", "disabled", 0)).await.unwrap().0[0].username,
+            "bob"
+        );
+
+        db.add_traffic(&[crate::TrafficDelta {
+            user_id: alice.id,
+            uplink: 300,
+            downlink: 400,
+        }])
+        .await
+        .unwrap();
+        db.add_traffic(&[crate::TrafficDelta {
+            user_id: alice.id,
+            uplink: 1,
+            downlink: 2,
+        }])
+        .await
+        .unwrap();
+        let alice = db.user(alice.id).await.unwrap().unwrap();
+        assert_eq!((alice.used_traffic, alice.lifetime_traffic), (703, 703));
+        let usage = db.user_usage(alice.id, 0).await.unwrap();
+        assert_eq!(usage.len(), 1);
+        assert_eq!((usage[0].uplink, usage[0].downlink), (301, 402));
+        db.reset_user_traffic(alice.id).await.unwrap();
+        let alice = db.user(alice.id).await.unwrap().unwrap();
+        assert_eq!((alice.used_traffic, alice.lifetime_traffic), (0, 703));
+        assert_eq!(
+            db.user_by_token("token-a").await.unwrap().unwrap().id,
+            alice.id
+        );
+        assert_eq!(db.user_counts().await.unwrap().get("disabled"), Some(&1));
+
+        let template = crate::UserTemplate {
+            name: "30 days".into(),
+            data_limit: 50,
+            expire_days: 30,
+            reset_strategy: "month".into(),
+            group_ids: vec![vip],
+            ..Default::default()
+        };
+        let id = db.save_user_template(&template).await.unwrap();
+        assert_eq!(db.user_templates().await.unwrap()[0].group_ids, vec![vip]);
+        assert!(db.delete_user_template(id).await.unwrap());
+
+        assert!(db.delete_access_group(vip).await.unwrap());
+        assert_eq!(
+            db.user(bob.id).await.unwrap().unwrap().group_ids,
+            Vec::<i64>::new()
+        );
+        assert!(db.delete_user(alice.id).await.unwrap());
+        assert!(db.user_usage(alice.id, 0).await.unwrap().is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
