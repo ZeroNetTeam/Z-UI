@@ -39,6 +39,8 @@ struct Inner {
     core_lock: tokio::sync::Mutex<()>,
     /// Users' addresses against their IP limits ([`crate::jobs`]).
     address_book: Mutex<crate::jobs::AddressBook>,
+    /// The subscription options, read on every fetch ([`crate::subscription`]).
+    subscription: std::sync::RwLock<crate::subscription::Settings>,
 }
 
 impl AppState {
@@ -61,6 +63,7 @@ impl AppState {
                 tls,
                 core_lock: tokio::sync::Mutex::new(()),
                 address_book: Mutex::new(Default::default()),
+                subscription: std::sync::RwLock::new(Default::default()),
             }),
         }
     }
@@ -100,6 +103,22 @@ impl AppState {
             .unwrap_or_else(|p| p.into_inner())
     }
 
+    pub fn subscription(&self) -> crate::subscription::Settings {
+        self.inner
+            .subscription
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    pub fn set_subscription(&self, settings: crate::subscription::Settings) {
+        *self
+            .inner
+            .subscription
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = settings;
+    }
+
     pub fn setup_token(&self) -> std::sync::MutexGuard<'_, Option<String>> {
         self.inner
             .setup_token
@@ -134,6 +153,11 @@ pub fn router(state: AppState) -> Router {
         state.clone(),
         crate::auth::same_origin,
     ))
+    // Subscriptions live outside the panel's path, and are answered first.
+    .layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        crate::subscription::intercept,
+    ))
     .with_state(state)
     // The panel's address is its secret path: never send it on.
     .layer(SetResponseHeaderLayer::overriding(
@@ -165,6 +189,9 @@ pub mod testing {
     use axum::http::Request;
     use clap::Parser;
     use http_body_util::BodyExt;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
     use tower::ServiceExt;
 
     pub struct Panel {
@@ -197,6 +224,60 @@ pub mod testing {
             // `z_ui_session=` with nothing after it is a sign-out.
             (!pair.ends_with('=')).then_some(pair)
         }
+    }
+
+    pub fn free_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    pub async fn echo_sink() -> u16 {
+        let sink = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = sink.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = sink.accept().await {
+                tokio::spawn(async move {
+                    let (mut read, mut write) = socket.split();
+                    let _ = tokio::io::copy(&mut read, &mut write).await;
+                });
+            }
+        });
+        port
+    }
+
+    /// A session through `socks` to the sink, carrying an echo, or None.
+    pub async fn connect(socks: u16, sink: u16, payload: &[u8]) -> Option<TcpStream> {
+        let attempt = async {
+            let mut stream = TcpStream::connect(("127.0.0.1", socks)).await.ok()?;
+            stream.write_all(&[5, 1, 0]).await.ok()?;
+            let mut method = [0u8; 2];
+            stream.read_exact(&mut method).await.ok()?;
+            let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+            request.extend_from_slice(&sink.to_be_bytes());
+            stream.write_all(&request).await.ok()?;
+            let mut reply = [0u8; 10];
+            stream.read_exact(&mut reply).await.ok()?;
+            stream.write_all(payload).await.ok()?;
+            let mut back = vec![0u8; payload.len()];
+            stream.read_exact(&mut back).await.ok()?;
+            (back == payload).then_some(stream)
+        };
+        tokio::time::timeout(Duration::from_secs(3), attempt)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    pub async fn ended(stream: &mut TcpStream) -> bool {
+        let _ = stream.write_all(b"still?").await;
+        let mut buf = [0u8; 8];
+        matches!(
+            tokio::time::timeout(Duration::from_secs(3), stream.read(&mut buf)).await,
+            Ok(Ok(0) | Err(_))
+        )
     }
 
     pub async fn panel(base: &str) -> Panel {
@@ -251,6 +332,28 @@ pub mod testing {
             }
             .unwrap();
             let response = self.app.clone().oneshot(request).await.unwrap();
+            let status = response.status();
+            let headers = response.headers().clone();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            Reply {
+                status,
+                body: String::from_utf8_lossy(&body).into_owned(),
+                headers,
+            }
+        }
+
+        /// A GET with `headers`, as a client app or browser sends it.
+        pub async fn fetch(&self, path: &str, headers: &[(&str, &str)]) -> Reply {
+            let mut request = Request::builder().method("GET").uri(path);
+            for (name, value) in headers {
+                request = request.header(*name, *value);
+            }
+            let response = self
+                .app
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
             let status = response.status();
             let headers = response.headers().clone();
             let body = response.into_body().collect().await.unwrap().to_bytes();

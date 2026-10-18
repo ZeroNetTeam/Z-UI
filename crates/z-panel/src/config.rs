@@ -32,6 +32,11 @@ pub struct PanelConfig {
     #[arg(long, env = "ZUI_KEY_FILE", requires = "cert")]
     pub key: Option<PathBuf>,
 
+    /// Also serve subscriptions, and only them, on this address: for a
+    /// subscription domain or port apart from the panel's.
+    #[arg(long, env = "ZUI_SUB_LISTEN")]
+    pub sub_listen: Option<SocketAddr>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }

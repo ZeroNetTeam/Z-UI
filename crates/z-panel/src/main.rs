@@ -9,6 +9,7 @@ mod core_config;
 mod error;
 mod jobs;
 mod server;
+mod subscription;
 mod tls;
 
 use std::sync::Arc;
@@ -54,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
         session_keys,
         tls.is_some(),
     );
+    state.set_subscription(subscription::load(&db).await);
     let scheme = if tls.is_some() { "https" } else { "http" };
     let address = format!("{scheme}://{}{}", config.listen, config.under_base("/"));
     if db.admin_count().await? == 0 {
@@ -72,6 +74,28 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("listening on {}", config.listen))?;
     tracing::info!("{} {} on {address}", z_common::PRODUCT, z_common::VERSION);
+    if let Some(sub_listen) = config.sub_listen {
+        // Subscriptions on a port of their own, for a domain apart from the
+        // panel's: nothing else is answered there.
+        let listener = tokio::net::TcpListener::bind(sub_listen)
+            .await
+            .with_context(|| format!("listening on {sub_listen}"))?;
+        tracing::info!("subscriptions on {scheme}://{sub_listen}");
+        let app = subscription::router(state.clone());
+        let tls = tls.clone();
+        tokio::spawn(async move {
+            match tls {
+                Some(acceptor) => tls::serve(listener, acceptor, app, std::future::pending()).await,
+                None => {
+                    let _ = axum::serve(
+                        listener,
+                        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+                    )
+                    .await;
+                }
+            }
+        });
+    }
     let app = server::router(state);
     match tls {
         Some(acceptor) => tls::serve(listener, acceptor, app, shutdown_signal()).await,

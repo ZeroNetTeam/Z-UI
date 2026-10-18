@@ -161,6 +161,8 @@ pub struct TemplateView {
     #[serde(default)]
     speed_down: i64,
     #[serde(default)]
+    hwid_limit: i64,
+    #[serde(default)]
     group_ids: Vec<i64>,
 }
 
@@ -180,6 +182,7 @@ impl From<z_db::UserTemplate> for TemplateView {
             ip_limit: t.ip_limit,
             speed_up: t.speed_up,
             speed_down: t.speed_down,
+            hwid_limit: t.hwid_limit,
             group_ids: t.group_ids,
         }
     }
@@ -220,6 +223,7 @@ async fn save_template(state: &AppState, id: i64, input: TemplateView) -> ApiRes
         input.ip_limit,
         input.speed_up,
         input.speed_down,
+        input.hwid_limit,
     ]
     .iter()
     .any(|value| *value < 0)
@@ -239,6 +243,7 @@ async fn save_template(state: &AppState, id: i64, input: TemplateView) -> ApiRes
         ip_limit: input.ip_limit,
         speed_up: input.speed_up,
         speed_down: input.speed_down,
+        hwid_limit: input.hwid_limit,
         group_ids: input.group_ids,
         created_at: 0,
     };

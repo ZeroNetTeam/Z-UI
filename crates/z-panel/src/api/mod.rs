@@ -7,6 +7,7 @@ mod groups;
 mod hosts;
 mod inbounds;
 mod keys;
+mod subscription;
 mod tools;
 mod users;
 
@@ -71,6 +72,22 @@ pub fn router() -> Router<AppState> {
         .route("/users/{id}/end-sessions", post(users::end_sessions))
         .route("/users/{id}/usage", get(users::usage))
         .route("/users/{id}/online", get(users::online))
+        .route(
+            "/users/{id}/subscription",
+            get(subscription::user_subscription),
+        )
+        .route(
+            "/users/{id}/devices",
+            get(subscription::devices).delete(subscription::delete_devices),
+        )
+        .route(
+            "/users/{id}/devices/{device}",
+            axum::routing::delete(subscription::delete_device),
+        )
+        .route(
+            "/settings/subscription",
+            get(subscription::settings).put(subscription::save_settings),
+        )
         .route("/groups", get(groups::list).post(groups::create))
         .route("/groups/{id}", put(groups::update).delete(groups::delete))
         .route(

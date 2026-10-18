@@ -43,6 +43,8 @@ sha1 = "0.10"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.8"
 hex = "0.4"
+base64 = "0.22"
+percent-encoding = "2"
 sha2 = "0.10"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }

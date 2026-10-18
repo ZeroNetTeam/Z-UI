@@ -37,6 +37,10 @@ pub struct UserView {
     online: bool,
     group_ids: Vec<i64>,
     next_plan: Option<NextPlan>,
+    hwid_limit: i64,
+    /// When and with what app the subscription was last fetched.
+    sub_updated_at: Option<i64>,
+    sub_user_agent: String,
     uuid: String,
     password: String,
     sub_token: String,
@@ -100,6 +104,9 @@ impl From<z_db::User> for UserView {
             online,
             group_ids: u.group_ids,
             next_plan: u.next_plan.map(NextPlan::from),
+            hwid_limit: u.hwid_limit,
+            sub_updated_at: u.sub_updated_at,
+            sub_user_agent: u.sub_user_agent,
             uuid: u.uuid,
             password: u.password,
             sub_token: u.sub_token,
@@ -137,6 +144,8 @@ pub struct UserInput {
     #[serde(default)]
     group_ids: Vec<i64>,
     next_plan: Option<NextPlan>,
+    #[serde(default)]
+    hwid_limit: i64,
 }
 
 fn active() -> String {
@@ -188,6 +197,7 @@ async fn fields(state: &AppState, input: UserInput) -> Result<z_db::UserFields, 
         (input.ip_limit, "ip_limit"),
         (input.speed_up, "speed_up"),
         (input.speed_down, "speed_down"),
+        (input.hwid_limit, "hwid_limit"),
         (
             input.next_plan.map_or(0, |p| p.data_limit),
             "next_plan.data_limit",
@@ -243,6 +253,7 @@ async fn fields(state: &AppState, input: UserInput) -> Result<z_db::UserFields, 
         note: input.note.chars().take(512).collect(),
         group_ids,
         next_plan: input.next_plan.map(z_db::NextPlan::from),
+        hwid_limit: input.hwid_limit,
     })
 }
 
@@ -603,6 +614,7 @@ pub async fn bulk(
             note: before.note.clone(),
             group_ids: before.group_ids.clone(),
             next_plan: before.next_plan,
+            hwid_limit: before.hwid_limit,
         };
         match &request.action {
             BulkAction::Delete => {
@@ -714,36 +726,12 @@ pub async fn bulk_create(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::Duration;
 
     use axum::http::StatusCode;
     use serde_json::{json, Value};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{TcpListener, TcpStream};
+    use tokio::net::TcpStream;
 
-    use crate::server::testing::{panel, Panel};
-
-    fn free_port() -> u16 {
-        std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
-    }
-
-    async fn echo_sink() -> u16 {
-        let sink = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = sink.local_addr().unwrap().port();
-        tokio::spawn(async move {
-            while let Ok((mut socket, _)) = sink.accept().await {
-                tokio::spawn(async move {
-                    let (mut read, mut write) = socket.split();
-                    let _ = tokio::io::copy(&mut read, &mut write).await;
-                });
-            }
-        });
-        port
-    }
+    use crate::server::testing::{connect, echo_sink, ended, free_port, panel, Panel};
 
     /// A zray client whose SOCKS5 port goes to `port` as `uuid` over VLESS.
     async fn client(port: u16, uuid: &str) -> u16 {
@@ -764,38 +752,6 @@ mod tests {
         tokio::spawn(async move { running.run().await });
         server.wait_until_listening().await;
         socks
-    }
-
-    /// A session through `socks` to the sink, carrying an echo, or None.
-    async fn connect(socks: u16, sink: u16, payload: &[u8]) -> Option<TcpStream> {
-        let attempt = async {
-            let mut stream = TcpStream::connect(("127.0.0.1", socks)).await.ok()?;
-            stream.write_all(&[5, 1, 0]).await.ok()?;
-            let mut method = [0u8; 2];
-            stream.read_exact(&mut method).await.ok()?;
-            let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
-            request.extend_from_slice(&sink.to_be_bytes());
-            stream.write_all(&request).await.ok()?;
-            let mut reply = [0u8; 10];
-            stream.read_exact(&mut reply).await.ok()?;
-            stream.write_all(payload).await.ok()?;
-            let mut back = vec![0u8; payload.len()];
-            stream.read_exact(&mut back).await.ok()?;
-            (back == payload).then_some(stream)
-        };
-        tokio::time::timeout(Duration::from_secs(3), attempt)
-            .await
-            .ok()
-            .flatten()
-    }
-
-    async fn ended(stream: &mut TcpStream) -> bool {
-        let _ = stream.write_all(b"still?").await;
-        let mut buf = [0u8; 8];
-        matches!(
-            tokio::time::timeout(Duration::from_secs(3), stream.read(&mut buf)).await,
-            Ok(Ok(0) | Err(_))
-        )
     }
 
     /// A panel with one plain VLESS inbound, and its port.

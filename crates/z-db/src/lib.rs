@@ -15,7 +15,8 @@ pub use admins::Admin;
 pub use certificates::Certificate;
 pub use inbounds::{Host, HostFields, Inbound, InboundFields};
 pub use users::{
-    AccessGroup, NextPlan, TrafficDelta, UsagePoint, User, UserFields, UserQuery, UserTemplate,
+    AccessGroup, Device, DeviceFields, NextPlan, TrafficDelta, UsagePoint, User, UserFields,
+    UserQuery, UserTemplate,
 };
 
 use sqlx::any::{AnyPoolOptions, AnyRow};
@@ -342,8 +343,33 @@ mod tests {
             (6000, Some(99), None)
         );
 
+        let phone = crate::DeviceFields {
+            hwid: "phone-1".into(),
+            platform: "android".into(),
+            ..Default::default()
+        };
+        db.save_device(alice.id, &phone).await.unwrap();
+        db.save_device(
+            alice.id,
+            &crate::DeviceFields {
+                model: "Pixel".into(),
+                ..phone.clone()
+            },
+        )
+        .await
+        .unwrap();
+        let devices = db.user_devices(alice.id).await.unwrap();
+        assert_eq!(devices.len(), 1, "the same hwid is one device");
+        assert_eq!(devices[0].model, "Pixel");
+        db.touch_subscription(alice.id, "v2rayNG/1.9").await.unwrap();
+        assert_eq!(
+            db.user(alice.id).await.unwrap().unwrap().sub_user_agent,
+            "v2rayNG/1.9"
+        );
+
         assert!(db.delete_user(alice.id).await.unwrap());
         assert!(db.user_usage(alice.id, 0).await.unwrap().is_empty());
+        assert!(db.user_devices(alice.id).await.unwrap().is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

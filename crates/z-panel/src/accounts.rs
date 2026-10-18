@@ -214,6 +214,9 @@ pub mod tests_support {
             updated_at: 0,
             group_ids: Vec::new(),
             next_plan: None,
+            hwid_limit: 0,
+            sub_updated_at: None,
+            sub_user_agent: String::new(),
         }
     }
 }

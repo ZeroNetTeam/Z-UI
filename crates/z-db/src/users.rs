@@ -35,6 +35,10 @@ pub struct User {
     pub updated_at: i64,
     pub group_ids: Vec<i64>,
     pub next_plan: Option<NextPlan>,
+    /// Devices its subscription may be fetched on; 0 for any.
+    pub hwid_limit: i64,
+    pub sub_updated_at: Option<i64>,
+    pub sub_user_agent: String,
 }
 
 /// What a user moves on to when it runs out of data or time.
@@ -65,6 +69,7 @@ pub struct UserFields {
     pub note: String,
     pub group_ids: Vec<i64>,
     pub next_plan: Option<NextPlan>,
+    pub hwid_limit: i64,
 }
 
 /// What can narrow a list of users.
@@ -83,7 +88,7 @@ macro_rules! user_columns {
         "id, username, status, uuid, password, sub_token, data_limit, used_traffic, lifetime_traffic, \
          expire_at, on_hold_duration, on_hold_timeout, reset_strategy, last_reset_at, ip_limit, \
          speed_up, speed_down, note, online_at, admin_id, created_at, updated_at, \
-         next_data_limit, next_expire_days, next_carry_over"
+         next_data_limit, next_expire_days, next_carry_over, hwid_limit, sub_updated_at, sub_user_agent"
     };
 }
 
@@ -122,6 +127,9 @@ fn user(row: AnyRow) -> Result<User, sqlx::Error> {
                 })
             })
             .transpose()?,
+        hwid_limit: row.try_get("hwid_limit")?,
+        sub_updated_at: row.try_get("sub_updated_at")?,
+        sub_user_agent: row.try_get("sub_user_agent")?,
     })
 }
 
@@ -146,13 +154,14 @@ pub struct UserTemplate {
     pub ip_limit: i64,
     pub speed_up: i64,
     pub speed_down: i64,
+    pub hwid_limit: i64,
     pub group_ids: Vec<i64>,
     pub created_at: i64,
 }
 
 macro_rules! template_columns {
     () => {
-        "id, name, data_limit, expire_days, on_hold, reset_strategy, ip_limit, speed_up, speed_down, group_ids, created_at"
+        "id, name, data_limit, expire_days, on_hold, reset_strategy, ip_limit, speed_up, speed_down, hwid_limit, group_ids, created_at"
     };
 }
 
@@ -168,6 +177,7 @@ fn template(row: AnyRow) -> Result<UserTemplate, sqlx::Error> {
         ip_limit: row.try_get("ip_limit")?,
         speed_up: row.try_get("speed_up")?,
         speed_down: row.try_get("speed_down")?,
+        hwid_limit: row.try_get("hwid_limit")?,
         group_ids: ids
             .split(',')
             .filter_map(|id| id.trim().parse().ok())
@@ -181,6 +191,30 @@ fn ids_text(ids: &[i64]) -> String {
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// A device a user fetched its subscription on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Device {
+    pub id: i64,
+    pub user_id: i64,
+    pub hwid: String,
+    pub platform: String,
+    pub os_version: String,
+    pub model: String,
+    pub user_agent: String,
+    pub first_seen: i64,
+    pub last_seen: i64,
+}
+
+/// What a client says of its device.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DeviceFields {
+    pub hwid: String,
+    pub platform: String,
+    pub os_version: String,
+    pub model: String,
+    pub user_agent: String,
 }
 
 /// Bytes one user moved in one hour.
@@ -332,8 +366,8 @@ impl Database {
         let row = sqlx::query(concat!(
             "INSERT INTO users (username, status, uuid, password, sub_token, data_limit, expire_at, ",
             "on_hold_duration, on_hold_timeout, reset_strategy, last_reset_at, ip_limit, speed_up, speed_down, ",
-            "note, admin_id, created_at, updated_at, next_data_limit, next_expire_days, next_carry_over) ",
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $11, $11, $17, $18, $19) ",
+            "note, admin_id, created_at, updated_at, next_data_limit, next_expire_days, next_carry_over, hwid_limit) ",
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $11, $11, $17, $18, $19, $20) ",
             "RETURNING id"
         ))
         .bind(&fields.username)
@@ -355,6 +389,7 @@ impl Database {
         .bind(fields.next_plan.map(|plan| plan.data_limit))
         .bind(fields.next_plan.map_or(0, |plan| plan.expire_days))
         .bind(i64::from(fields.next_plan.is_some_and(|plan| plan.carry_over)))
+        .bind(fields.hwid_limit)
         .fetch_one(&mut *tx)
         .await?;
         let id: i64 = row.try_get(0)?;
@@ -375,7 +410,7 @@ impl Database {
             "UPDATE users SET username = $1, status = $2, data_limit = $3, expire_at = $4, ",
             "on_hold_duration = $5, on_hold_timeout = $6, reset_strategy = $7, ip_limit = $8, ",
             "speed_up = $9, speed_down = $10, note = $11, updated_at = $12, next_data_limit = $14, ",
-            "next_expire_days = $15, next_carry_over = $16 WHERE id = $13"
+            "next_expire_days = $15, next_carry_over = $16, hwid_limit = $17 WHERE id = $13"
         ))
         .bind(&fields.username)
         .bind(&fields.status)
@@ -393,6 +428,7 @@ impl Database {
         .bind(fields.next_plan.map(|plan| plan.data_limit))
         .bind(fields.next_plan.map_or(0, |plan| plan.expire_days))
         .bind(i64::from(fields.next_plan.is_some_and(|plan| plan.carry_over)))
+        .bind(fields.hwid_limit)
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -419,6 +455,7 @@ impl Database {
         for table in [
             "DELETE FROM user_access_groups WHERE user_id = $1",
             "DELETE FROM user_usage WHERE user_id = $1",
+            "DELETE FROM user_devices WHERE user_id = $1",
         ] {
             sqlx::query(table).bind(id).execute(&mut *tx).await?;
         }
@@ -704,7 +741,7 @@ impl Database {
         if template.id == 0 {
             let row = sqlx::query(concat!(
                 "INSERT INTO user_templates (name, data_limit, expire_days, on_hold, reset_strategy, ip_limit, ",
-                "speed_up, speed_down, group_ids, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id"
+                "speed_up, speed_down, group_ids, created_at, hwid_limit) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id"
             ))
             .bind(&template.name)
             .bind(template.data_limit)
@@ -716,13 +753,14 @@ impl Database {
             .bind(template.speed_down)
             .bind(&groups)
             .bind(now())
+            .bind(template.hwid_limit)
             .fetch_one(self.pool())
             .await?;
             return Ok(row.try_get(0)?);
         }
         sqlx::query(concat!(
             "UPDATE user_templates SET name = $1, data_limit = $2, expire_days = $3, on_hold = $4, ",
-            "reset_strategy = $5, ip_limit = $6, speed_up = $7, speed_down = $8, group_ids = $9 WHERE id = $10"
+            "reset_strategy = $5, ip_limit = $6, speed_up = $7, speed_down = $8, group_ids = $9, hwid_limit = $11 WHERE id = $10"
         ))
         .bind(&template.name)
         .bind(template.data_limit)
@@ -734,9 +772,97 @@ impl Database {
         .bind(template.speed_down)
         .bind(&groups)
         .bind(template.id)
+        .bind(template.hwid_limit)
         .execute(self.pool())
         .await?;
         Ok(template.id)
+    }
+
+    /// Record a fetch of `id`'s subscription with `user_agent`.
+    pub async fn touch_subscription(&self, id: i64, user_agent: &str) -> Result<(), DbError> {
+        sqlx::query("UPDATE users SET sub_updated_at = $1, sub_user_agent = $2 WHERE id = $3")
+            .bind(now())
+            .bind(user_agent)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn user_devices(&self, user_id: i64) -> Result<Vec<Device>, DbError> {
+        let rows = sqlx::query(concat!(
+            "SELECT id, user_id, hwid, platform, os_version, model, user_agent, first_seen, last_seen ",
+            "FROM user_devices WHERE user_id = $1 ORDER BY first_seen"
+        ))
+        .bind(user_id)
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(Device {
+                    id: row.try_get("id")?,
+                    user_id: row.try_get("user_id")?,
+                    hwid: row.try_get("hwid")?,
+                    platform: row.try_get("platform")?,
+                    os_version: row.try_get("os_version")?,
+                    model: row.try_get("model")?,
+                    user_agent: row.try_get("user_agent")?,
+                    first_seen: row.try_get("first_seen")?,
+                    last_seen: row.try_get("last_seen")?,
+                })
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(DbError::from)
+    }
+
+    /// Note `device` as seen now: its details refreshed if it is known,
+    /// added if not.
+    pub async fn save_device(&self, user_id: i64, device: &DeviceFields) -> Result<(), DbError> {
+        let now = now();
+        let updated = sqlx::query(concat!(
+            "UPDATE user_devices SET platform = $1, os_version = $2, model = $3, user_agent = $4, ",
+            "last_seen = $5 WHERE user_id = $6 AND hwid = $7"
+        ))
+        .bind(&device.platform)
+        .bind(&device.os_version)
+        .bind(&device.model)
+        .bind(&device.user_agent)
+        .bind(now)
+        .bind(user_id)
+        .bind(&device.hwid)
+        .execute(self.pool())
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            sqlx::query(concat!(
+                "INSERT INTO user_devices (user_id, hwid, platform, os_version, model, user_agent, ",
+                "first_seen, last_seen) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)"
+            ))
+            .bind(user_id)
+            .bind(&device.hwid)
+            .bind(&device.platform)
+            .bind(&device.os_version)
+            .bind(&device.model)
+            .bind(&device.user_agent)
+            .bind(now)
+            .execute(self.pool())
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Forget a device of `user_id` (all of them with `None`).
+    pub async fn delete_devices(&self, user_id: i64, device: Option<i64>) -> Result<u64, DbError> {
+        let deleted = match device {
+            Some(id) => sqlx::query("DELETE FROM user_devices WHERE user_id = $1 AND id = $2")
+                .bind(user_id)
+                .bind(id),
+            None => sqlx::query("DELETE FROM user_devices WHERE user_id = $1").bind(user_id),
+        }
+        .execute(self.pool())
+        .await?
+        .rows_affected();
+        Ok(deleted)
     }
 
     pub async fn delete_user_template(&self, id: i64) -> Result<bool, DbError> {
