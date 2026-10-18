@@ -213,6 +213,7 @@ pub mod tests_support {
             created_at: 0,
             updated_at: 0,
             group_ids: Vec::new(),
+            next_plan: None,
         }
     }
 }

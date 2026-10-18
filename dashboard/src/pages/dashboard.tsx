@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ActivityIcon, CpuIcon, PackageIcon, RefreshCwIcon, WaypointsIcon, type LucideIcon } from "lucide-react";
+import { ActivityIcon, CpuIcon, PackageIcon, RefreshCwIcon, UsersIcon, WaypointsIcon, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/layout/layout";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Health } from "@/lib/api";
+import { useUserCounts } from "@/pages/users";
 
 function StatCard({
   icon: Icon,
@@ -43,6 +44,7 @@ export function DashboardPage() {
     queryFn: () => api<Health>("health"),
     refetchInterval: 5000,
   });
+  const counts = useUserCounts();
   const number = (value: number) => new Intl.NumberFormat(i18n.language).format(value);
 
   if (health.isError) {
@@ -68,7 +70,14 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader title={t("dashboard.title")} subtitle={t("dashboard.subtitle")} />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <StatCard
+          icon={UsersIcon}
+          title={t("dashboard.users")}
+          hint={counts.data ? t("dashboard.usersHint", { online: counts.data.online ?? 0, active: counts.data.active ?? 0 }) : undefined}
+        >
+          {counts.data ? number(counts.data.total ?? 0) : <Skeleton className="h-8 w-20" />}
+        </StatCard>
         <StatCard icon={CpuIcon} title={t("dashboard.core")} hint={data?.core.core_version}>
           {value((d) =>
             d.core.running ? (

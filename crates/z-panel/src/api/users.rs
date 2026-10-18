@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::accounts;
 use crate::auth::CurrentAdmin;
 use crate::error::{ApiError, ApiResult};
-use crate::jobs::{effective_status, period_seconds, INTERVAL};
+use crate::jobs::{period_seconds, INTERVAL};
 use crate::server::AppState;
 
 /// What the dashboard sees of a user.
@@ -36,11 +36,43 @@ pub struct UserView {
     /// Seen connected within the last pass or two.
     online: bool,
     group_ids: Vec<i64>,
+    next_plan: Option<NextPlan>,
     uuid: String,
     password: String,
     sub_token: String,
     created_at: i64,
     updated_at: i64,
+}
+
+/// What a user moves on to when it runs out of data or time.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct NextPlan {
+    #[serde(default)]
+    data_limit: i64,
+    #[serde(default)]
+    expire_days: i64,
+    #[serde(default)]
+    carry_over: bool,
+}
+
+impl From<z_db::NextPlan> for NextPlan {
+    fn from(p: z_db::NextPlan) -> Self {
+        Self {
+            data_limit: p.data_limit,
+            expire_days: p.expire_days,
+            carry_over: p.carry_over,
+        }
+    }
+}
+
+impl From<NextPlan> for z_db::NextPlan {
+    fn from(p: NextPlan) -> Self {
+        Self {
+            data_limit: p.data_limit,
+            expire_days: p.expire_days,
+            carry_over: p.carry_over,
+        }
+    }
 }
 
 impl From<z_db::User> for UserView {
@@ -67,6 +99,7 @@ impl From<z_db::User> for UserView {
             online_at: u.online_at,
             online,
             group_ids: u.group_ids,
+            next_plan: u.next_plan.map(NextPlan::from),
             uuid: u.uuid,
             password: u.password,
             sub_token: u.sub_token,
@@ -103,6 +136,7 @@ pub struct UserInput {
     note: String,
     #[serde(default)]
     group_ids: Vec<i64>,
+    next_plan: Option<NextPlan>,
 }
 
 fn active() -> String {
@@ -154,6 +188,14 @@ async fn fields(state: &AppState, input: UserInput) -> Result<z_db::UserFields, 
         (input.ip_limit, "ip_limit"),
         (input.speed_up, "speed_up"),
         (input.speed_down, "speed_down"),
+        (
+            input.next_plan.map_or(0, |p| p.data_limit),
+            "next_plan.data_limit",
+        ),
+        (
+            input.next_plan.map_or(0, |p| p.expire_days),
+            "next_plan.expire_days",
+        ),
     ] {
         if value < 0 {
             return Err(ApiError::bad_request(
@@ -200,6 +242,7 @@ async fn fields(state: &AppState, input: UserInput) -> Result<z_db::UserFields, 
         speed_down: input.speed_down,
         note: input.note.chars().take(512).collect(),
         group_ids,
+        next_plan: input.next_plan.map(z_db::NextPlan::from),
     })
 }
 
@@ -239,17 +282,11 @@ async fn reach_core(
     Ok(())
 }
 
-/// Store the status the counters call for, if it differs from what was set.
+/// Store the status the counters call for, or move the user on to its
+/// next plan (see [`crate::jobs::settle`]).
 async fn settle(state: &AppState, user: z_db::User) -> Result<z_db::User, ApiError> {
-    let status = effective_status(&user, z_db::now());
-    if status == user.status {
-        return Ok(user);
-    }
-    state.db().set_user_status(user.id, status).await?;
-    Ok(z_db::User {
-        status: status.into(),
-        ..user
-    })
+    let stored = user.status.clone();
+    crate::jobs::settle(state.db(), user, &stored, z_db::now()).await
 }
 
 #[derive(Deserialize)]
@@ -412,6 +449,37 @@ pub async fn end_sessions(
     }))
 }
 
+#[derive(Serialize)]
+pub struct Connected {
+    sessions: u64,
+    addresses: Vec<String>,
+}
+
+/// The sessions a user has open now, and the addresses they come from.
+pub async fn online(
+    State(state): State<AppState>,
+    _: CurrentAdmin,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<Connected>> {
+    let user = state.db().user(id).await?.ok_or_else(not_found)?;
+    let account = state
+        .node()
+        .online()
+        .await
+        .into_iter()
+        .find(|account| account.email == user.username);
+    Ok(Json(account.map_or(
+        Connected {
+            sessions: 0,
+            addresses: Vec::new(),
+        },
+        |account| Connected {
+            sessions: account.sessions,
+            addresses: account.addresses,
+        },
+    )))
+}
+
 #[derive(Deserialize)]
 pub struct UsageQuery {
     days: Option<i64>,
@@ -445,11 +513,20 @@ pub async fn usage(
     ))
 }
 
+/// Users by status, with `total` and `online` beside them.
 pub async fn counts(
     State(state): State<AppState>,
     _: CurrentAdmin,
 ) -> ApiResult<Json<std::collections::HashMap<String, i64>>> {
-    Ok(Json(state.db().user_counts().await?))
+    let mut counts = state.db().user_counts().await?;
+    counts.insert("total".into(), counts.values().sum());
+    let users = state.db().all_users().await?;
+    let online = users
+        .into_iter()
+        .filter(|user| UserView::from(user.clone()).online)
+        .count();
+    counts.insert("online".into(), online as i64);
+    Ok(Json(counts))
 }
 
 #[derive(Deserialize)]
@@ -460,13 +537,18 @@ pub enum BulkAction {
     Delete,
     Reset,
     Revoke,
-    /// Push the expiry `days` later (from now for a user without one).
+    /// Push the expiry `days` later (from now for a user without one); an
+    /// on-hold user gets `days` more once it starts.
     Extend {
         days: i64,
     },
     /// Raise the data limit by `bytes` (a user without a limit keeps none).
     AddData {
         bytes: i64,
+    },
+    /// Put the users in exactly these groups.
+    SetGroups {
+        group_ids: Vec<i64>,
     },
 }
 
@@ -491,6 +573,15 @@ pub async fn bulk(
     if request.ids.len() > 10_000 {
         return Err(bad("too_many", "at most 10000 users at once"));
     }
+    if let BulkAction::SetGroups { group_ids } = &request.action {
+        let known = state.db().access_groups().await?;
+        if group_ids
+            .iter()
+            .any(|id| !known.iter().any(|g| g.id == *id))
+        {
+            return Err(bad("invalid_group", "there is no such group"));
+        }
+    }
     let _guard = state.core_lock().lock().await;
     let db = state.db();
     let mut changed = 0;
@@ -511,6 +602,7 @@ pub async fn bulk(
             speed_down: before.speed_down,
             note: before.note.clone(),
             group_ids: before.group_ids.clone(),
+            next_plan: before.next_plan,
         };
         match &request.action {
             BulkAction::Delete => {
@@ -531,6 +623,11 @@ pub async fn bulk(
                 }
             }
             BulkAction::Disable => fields.status = "disabled".into(),
+            // An on-hold user's time has not started: it gets more of it.
+            BulkAction::Extend { days } if before.status == "on_hold" => {
+                fields.on_hold_duration =
+                    Some(before.on_hold_duration.unwrap_or(0) + days * 86_400);
+            }
             BulkAction::Extend { days } => {
                 let base = before
                     .expire_at
@@ -540,6 +637,11 @@ pub async fn bulk(
                 if fields.status == "expired" {
                     fields.status = "active".into();
                 }
+            }
+            BulkAction::SetGroups { group_ids } => {
+                fields.group_ids = group_ids.clone();
+                fields.group_ids.sort_unstable();
+                fields.group_ids.dedup();
             }
             BulkAction::AddData { bytes } => {
                 if fields.data_limit > 0 {
@@ -870,6 +972,21 @@ mod tests {
         .await;
         assert_eq!(held["status"], "on_hold");
         assert!(held["expire_at"].is_null(), "no date until it starts");
+        let extended = panel
+            .send(
+                "POST",
+                "/api/users/bulk",
+                Some(&session),
+                Some(json!({"action": "extend", "days": 1, "ids": [held["id"]]})),
+            )
+            .await;
+        assert_eq!(extended.json()["changed"], 1, "{}", extended.body);
+        let held = panel
+            .get(&format!("/api/users/{}", held["id"]), Some(&session))
+            .await
+            .json();
+        assert!(held["expire_at"].is_null(), "still no date: {held}");
+        assert_eq!(held["on_hold_duration"], 3600 + 86_400);
         let sink = echo_sink().await;
         let socks = client(port, held["uuid"].as_str().unwrap()).await;
         let _open = connected(socks, sink, b"first").await;
@@ -880,7 +997,74 @@ mod tests {
             .json();
         assert_eq!(started["status"], "active", "{started}");
         let expire = started["expire_at"].as_i64().unwrap();
-        assert!((expire - z_db::now() - 3600).abs() < 30, "{started}");
+        assert!(
+            (expire - z_db::now() - 3600 - 86_400).abs() < 30,
+            "{started}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_user_out_of_data_moves_on_to_its_next_plan() {
+        let (panel, session, port) = with_inbound().await;
+        let default = panel.get("/api/groups", Some(&session)).await.json()[0]["id"].clone();
+        let frank = user(
+            &panel,
+            &session,
+            json!({
+                "username": "frank", "group_ids": [default], "data_limit": 150_000,
+                "next_plan": {"data_limit": 10_000_000, "expire_days": 30, "carry_over": false},
+            }),
+        )
+        .await;
+        assert_eq!(frank["next_plan"]["expire_days"], 30);
+        let id = frank["id"].as_i64().unwrap();
+        let sink = echo_sink().await;
+        let socks = client(port, frank["uuid"].as_str().unwrap()).await;
+        let _open = connected(socks, sink, &vec![1u8; 100_000]).await;
+
+        let online = panel
+            .get(&format!("/api/users/{id}/online"), Some(&session))
+            .await
+            .json();
+        assert_eq!(online["addresses"], json!(["127.0.0.1"]), "{online}");
+
+        crate::jobs::enforce_once(&panel.state).await.unwrap();
+        let moved = panel
+            .get(&format!("/api/users/{id}"), Some(&session))
+            .await
+            .json();
+        assert_eq!(moved["status"], "active", "{moved}");
+        assert_eq!(moved["data_limit"], 10_000_000);
+        assert_eq!(moved["used_traffic"], 0);
+        assert!(moved["next_plan"].is_null());
+        let expire = moved["expire_at"].as_i64().unwrap();
+        assert!((expire - z_db::now() - 30 * 86_400).abs() < 30);
+        assert!(connect(socks, sink, b"still in").await.is_some());
+
+        // Without a plan left, the next time it runs out it is limited.
+        let lowered = panel
+            .send(
+                "PUT",
+                &format!("/api/users/{id}"),
+                Some(&session),
+                Some(json!({
+                    "username": "frank", "group_ids": [default], "data_limit": 1,
+                    "expire_at": expire,
+                })),
+            )
+            .await;
+        assert_eq!(
+            lowered.json()["status"],
+            "active",
+            "nothing counted since the switch"
+        );
+        let _more = connected(socks, sink, b"a few more bytes").await;
+        crate::jobs::enforce_once(&panel.state).await.unwrap();
+        let now = panel
+            .get(&format!("/api/users/{id}"), Some(&session))
+            .await
+            .json();
+        assert_eq!(now["status"], "limited", "{now}");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1028,6 +1212,40 @@ mod tests {
             connect(socks, sink, b"x").await.is_some(),
             "the group now gives it"
         );
+
+        let other = panel
+            .send(
+                "POST",
+                "/api/groups",
+                Some(&session),
+                Some(json!({"name": "other", "inbound_ids": []})),
+            )
+            .await
+            .json();
+        let moved = panel
+            .send(
+                "POST",
+                "/api/users/bulk",
+                Some(&session),
+                Some(json!({"action": "set_groups", "group_ids": [other["id"]], "ids": [carol["id"]]})),
+            )
+            .await;
+        assert_eq!(moved.json()["changed"], 1, "{}", moved.body);
+        assert!(
+            connect(socks, sink, b"x").await.is_none(),
+            "moved out of the group"
+        );
+        let groups = panel.get("/api/groups", Some(&session)).await.json();
+        let count = |name: &str| {
+            groups
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|g| g["name"] == name)
+                .unwrap()["users"]
+                .clone()
+        };
+        assert_eq!((count("none"), count("other")), (json!(0), json!(1)));
 
         let template = panel
             .send("POST", "/api/templates", Some(&session), Some(json!({"name": "monthly", "data_limit": 5, "expire_days": 30, "reset_strategy": "month"})))

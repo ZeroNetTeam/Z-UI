@@ -17,6 +17,8 @@ pub struct GroupView {
     name: String,
     all_inbounds: bool,
     inbound_ids: Vec<i64>,
+    /// How many users are in it.
+    users: usize,
 }
 
 #[derive(Deserialize)]
@@ -33,10 +35,12 @@ pub async fn list(
     _: CurrentAdmin,
 ) -> ApiResult<Json<Vec<GroupView>>> {
     let groups = state.db().access_groups().await?;
+    let users = state.db().all_users().await?;
     Ok(Json(
         groups
             .into_iter()
             .map(|g| GroupView {
+                users: users.iter().filter(|u| u.group_ids.contains(&g.id)).count(),
                 id: g.id,
                 name: g.name,
                 all_inbounds: g.all_inbounds,
@@ -82,7 +86,12 @@ async fn save(state: &AppState, id: Option<i64>, input: GroupInput) -> ApiResult
             )
         })?;
     core_config::apply(state, &inbounds).await?;
+    let users = state.db().all_users().await?;
     Ok(GroupView {
+        users: users
+            .iter()
+            .filter(|u| u.group_ids.contains(&saved))
+            .count(),
         id: saved,
         name,
         all_inbounds: input.all_inbounds,

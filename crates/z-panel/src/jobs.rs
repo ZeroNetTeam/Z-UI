@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
-use z_db::{TrafficDelta, User};
+use z_db::{Database, NextPlan, TrafficDelta, User};
 
 use crate::accounts;
 use crate::error::ApiError;
@@ -51,6 +51,44 @@ pub fn effective_status(user: &User, now: i64) -> &'static str {
         _ if user.expire_at.is_some_and(|at| at <= now) => "expired",
         _ => "active",
     }
+}
+
+/// The data limit and expiry `user` gets on moving on to `plan` now: the
+/// plan's limit, plus what was left of the old one if it carries over.
+pub fn switch_to(user: &User, plan: NextPlan, now: i64) -> (i64, Option<i64>) {
+    let left = (user.data_limit - user.used_traffic).max(0);
+    let data_limit = if plan.carry_over && plan.data_limit > 0 && user.data_limit > 0 {
+        plan.data_limit + left
+    } else {
+        plan.data_limit
+    };
+    let expire_at = (plan.expire_days > 0).then(|| now + plan.expire_days * 86_400);
+    (data_limit, expire_at)
+}
+
+/// Store the status `user`'s counters call for (`stored` is the one in the
+/// database). A user that ran out of data or time with a next plan moves on
+/// to it instead. Returns the user as it now is.
+pub async fn settle(
+    db: &Database,
+    mut user: User,
+    stored: &str,
+    now: i64,
+) -> Result<User, ApiError> {
+    let status = effective_status(&user, now);
+    if matches!(status, "limited" | "expired") {
+        if let Some(plan) = user.next_plan {
+            let (data_limit, expire_at) = switch_to(&user, plan, now);
+            db.apply_next_plan(user.id, data_limit, expire_at).await?;
+            tracing::info!(user = %user.username, "moved on to its next plan");
+            return Ok(db.user(user.id).await?.unwrap_or(user));
+        }
+    }
+    user.status = status.into();
+    if user.status != stored {
+        db.set_user_status(user.id, &user.status).await?;
+    }
+    Ok(user)
 }
 
 /// Where each user's addresses stand against its IP limit: first seen, last
@@ -161,12 +199,8 @@ pub async fn enforce_once(state: &AppState) -> Result<(), ApiError> {
                 tracing::info!(user = %after.username, "on-hold time started");
             }
         }
-        let status = effective_status(&after, now);
-        if status != after.status {
-            after.status = status.into();
-        }
+        let after = settle(db, after, &before.status, now).await?;
         if after.status != before.status {
-            db.set_user_status(after.id, &after.status).await?;
             tracing::info!(user = %after.username, from = %before.status, to = %after.status, "user status changed");
             accounts::sync_user(state, Some(&before), Some(&after)).await?;
         }
@@ -233,6 +267,30 @@ mod tests {
             "on_hold",
             "its time has not started"
         );
+    }
+
+    #[test]
+    fn a_next_plan_carries_what_was_left() {
+        let mut user = crate::accounts::tests_support::user("a", "active");
+        user.data_limit = 100;
+        user.used_traffic = 70;
+        let plan = NextPlan {
+            data_limit: 1000,
+            expire_days: 2,
+            carry_over: true,
+        };
+        assert_eq!(switch_to(&user, plan, 10), (1030, Some(10 + 2 * 86_400)));
+        let plain = NextPlan {
+            carry_over: false,
+            expire_days: 0,
+            ..plan
+        };
+        assert_eq!(switch_to(&user, plain, 10), (1000, None));
+        let unlimited = NextPlan {
+            data_limit: 0,
+            ..plan
+        };
+        assert_eq!(switch_to(&user, unlimited, 0).0, 0, "no limit stays none");
     }
 
     #[test]

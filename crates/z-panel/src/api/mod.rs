@@ -70,6 +70,7 @@ pub fn router() -> Router<AppState> {
         .route("/users/{id}/revoke", post(users::revoke))
         .route("/users/{id}/end-sessions", post(users::end_sessions))
         .route("/users/{id}/usage", get(users::usage))
+        .route("/users/{id}/online", get(users::online))
         .route("/groups", get(groups::list).post(groups::create))
         .route("/groups/{id}", put(groups::update).delete(groups::delete))
         .route(

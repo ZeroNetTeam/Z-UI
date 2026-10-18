@@ -13,7 +13,12 @@ Some dashboard files are adapted from **PasarGuard**
 (<https://github.com/PasarGuard/panel>), © PasarGuard organization, licensed
 under the **GNU Affero General Public License, version 3**. GPLv3 §13 allows
 combining them with this GPLv3 work; those files keep their AGPLv3 terms and
-say so in their first lines (`Adapted from PasarGuard … AGPL-3.0`).
+say so in their first lines (`Adapted from PasarGuard … AGPL-3.0`):
+
+- `dashboard/src/lib/users.ts` (user status colours)
+- `dashboard/src/components/user-cells.tsx` (status badge, online dot, usage bar)
+- `dashboard/src/pages/users.tsx` (users table and bulk bar)
+- `dashboard/src/pages/templates.tsx` (template cards)
 
 What that means for you: the AGPL's network clause applies to the combined
 work. If you run a modified Z-UI for others to use over a network, you must

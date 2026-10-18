@@ -34,6 +34,18 @@ pub struct User {
     pub created_at: i64,
     pub updated_at: i64,
     pub group_ids: Vec<i64>,
+    pub next_plan: Option<NextPlan>,
+}
+
+/// What a user moves on to when it runs out of data or time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct NextPlan {
+    /// The new data limit, 0 for none.
+    pub data_limit: i64,
+    /// Days from the switch, 0 for no date.
+    pub expire_days: i64,
+    /// Whether the data left of the old limit is added to the new one.
+    pub carry_over: bool,
 }
 
 /// What an admin sets on a user. Counters, credentials and times the panel
@@ -52,6 +64,7 @@ pub struct UserFields {
     pub speed_down: i64,
     pub note: String,
     pub group_ids: Vec<i64>,
+    pub next_plan: Option<NextPlan>,
 }
 
 /// What can narrow a list of users.
@@ -69,7 +82,8 @@ macro_rules! user_columns {
     () => {
         "id, username, status, uuid, password, sub_token, data_limit, used_traffic, lifetime_traffic, \
          expire_at, on_hold_duration, on_hold_timeout, reset_strategy, last_reset_at, ip_limit, \
-         speed_up, speed_down, note, online_at, admin_id, created_at, updated_at"
+         speed_up, speed_down, note, online_at, admin_id, created_at, updated_at, \
+         next_data_limit, next_expire_days, next_carry_over"
     };
 }
 
@@ -98,6 +112,16 @@ fn user(row: AnyRow) -> Result<User, sqlx::Error> {
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
         group_ids: Vec::new(),
+        next_plan: row
+            .try_get::<Option<i64>, _>("next_data_limit")?
+            .map(|data_limit| -> Result<NextPlan, sqlx::Error> {
+                Ok(NextPlan {
+                    data_limit,
+                    expire_days: row.try_get("next_expire_days")?,
+                    carry_over: row.try_get::<i64, _>("next_carry_over")? != 0,
+                })
+            })
+            .transpose()?,
     })
 }
 
@@ -308,8 +332,9 @@ impl Database {
         let row = sqlx::query(concat!(
             "INSERT INTO users (username, status, uuid, password, sub_token, data_limit, expire_at, ",
             "on_hold_duration, on_hold_timeout, reset_strategy, last_reset_at, ip_limit, speed_up, speed_down, ",
-            "note, admin_id, created_at, updated_at) ",
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $11, $11) RETURNING id"
+            "note, admin_id, created_at, updated_at, next_data_limit, next_expire_days, next_carry_over) ",
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $11, $11, $17, $18, $19) ",
+            "RETURNING id"
         ))
         .bind(&fields.username)
         .bind(&fields.status)
@@ -327,6 +352,9 @@ impl Database {
         .bind(fields.speed_down)
         .bind(&fields.note)
         .bind(admin_id)
+        .bind(fields.next_plan.map(|plan| plan.data_limit))
+        .bind(fields.next_plan.map_or(0, |plan| plan.expire_days))
+        .bind(i64::from(fields.next_plan.is_some_and(|plan| plan.carry_over)))
         .fetch_one(&mut *tx)
         .await?;
         let id: i64 = row.try_get(0)?;
@@ -346,7 +374,8 @@ impl Database {
         let changed = sqlx::query(concat!(
             "UPDATE users SET username = $1, status = $2, data_limit = $3, expire_at = $4, ",
             "on_hold_duration = $5, on_hold_timeout = $6, reset_strategy = $7, ip_limit = $8, ",
-            "speed_up = $9, speed_down = $10, note = $11, updated_at = $12 WHERE id = $13"
+            "speed_up = $9, speed_down = $10, note = $11, updated_at = $12, next_data_limit = $14, ",
+            "next_expire_days = $15, next_carry_over = $16 WHERE id = $13"
         ))
         .bind(&fields.username)
         .bind(&fields.status)
@@ -361,6 +390,9 @@ impl Database {
         .bind(&fields.note)
         .bind(now())
         .bind(id)
+        .bind(fields.next_plan.map(|plan| plan.data_limit))
+        .bind(fields.next_plan.map_or(0, |plan| plan.expire_days))
+        .bind(i64::from(fields.next_plan.is_some_and(|plan| plan.carry_over)))
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -415,6 +447,28 @@ impl Database {
             "UPDATE users SET status = 'active', expire_at = $1, on_hold_duration = NULL, \
              on_hold_timeout = NULL, updated_at = $2 WHERE id = $3",
         )
+        .bind(expire_at)
+        .bind(now())
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Move a user on to its next plan: a fresh limit and date, its period's
+    /// traffic zeroed, active again, and no plan after it.
+    pub async fn apply_next_plan(
+        &self,
+        id: i64,
+        data_limit: i64,
+        expire_at: Option<i64>,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE users SET status = 'active', data_limit = $1, expire_at = $2, used_traffic = 0, \
+             last_reset_at = $3, next_data_limit = NULL, next_expire_days = 0, next_carry_over = 0, \
+             updated_at = $3 WHERE id = $4",
+        )
+        .bind(data_limit)
         .bind(expire_at)
         .bind(now())
         .bind(id)

@@ -14,7 +14,9 @@ mod users;
 pub use admins::Admin;
 pub use certificates::Certificate;
 pub use inbounds::{Host, HostFields, Inbound, InboundFields};
-pub use users::{AccessGroup, TrafficDelta, UsagePoint, User, UserFields, UserQuery, UserTemplate};
+pub use users::{
+    AccessGroup, NextPlan, TrafficDelta, UsagePoint, User, UserFields, UserQuery, UserTemplate,
+};
 
 use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{AnyPool, Row};
@@ -316,6 +318,30 @@ mod tests {
             db.user(bob.id).await.unwrap().unwrap().group_ids,
             Vec::<i64>::new()
         );
+        let plan = crate::NextPlan {
+            data_limit: 5000,
+            expire_days: 30,
+            carry_over: true,
+        };
+        let planned = db
+            .update_user(
+                alice.id,
+                &crate::UserFields {
+                    next_plan: Some(plan),
+                    ..fields.clone()
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(planned.next_plan, Some(plan));
+        db.apply_next_plan(alice.id, 6000, Some(99)).await.unwrap();
+        let moved = db.user(alice.id).await.unwrap().unwrap();
+        assert_eq!(
+            (moved.data_limit, moved.expire_at, moved.next_plan),
+            (6000, Some(99), None)
+        );
+
         assert!(db.delete_user(alice.id).await.unwrap());
         assert!(db.user_usage(alice.id, 0).await.unwrap().is_empty());
         std::fs::remove_dir_all(&dir).unwrap();

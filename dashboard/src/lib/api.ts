@@ -154,3 +154,103 @@ export interface RealityCheck {
   error: string | null;
   suitable: boolean;
 }
+
+/** Statuses the panel stores; `limited` and `expired` it sets itself. */
+export type UserStatus = "active" | "disabled" | "on_hold" | "limited" | "expired";
+
+export type ResetStrategy = "no_reset" | "day" | "week" | "month" | "year";
+
+export interface User {
+  id: number;
+  username: string;
+  status: UserStatus;
+  data_limit: number;
+  used_traffic: number;
+  lifetime_traffic: number;
+  expire_at: number | null;
+  on_hold_duration: number | null;
+  on_hold_timeout: number | null;
+  reset_strategy: ResetStrategy;
+  last_reset_at: number | null;
+  ip_limit: number;
+  speed_up: number;
+  speed_down: number;
+  note: string;
+  online_at: number | null;
+  online: boolean;
+  group_ids: number[];
+  next_plan: NextPlan | null;
+  uuid: string;
+  password: string;
+  sub_token: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface UserPayload {
+  username: string;
+  status: "active" | "disabled" | "on_hold";
+  data_limit: number;
+  expire_at: number | null;
+  on_hold_duration: number | null;
+  on_hold_timeout: number | null;
+  reset_strategy: ResetStrategy;
+  ip_limit: number;
+  speed_up: number;
+  speed_down: number;
+  note: string;
+  group_ids: number[];
+  next_plan: NextPlan | null;
+}
+
+/** What a user moves on to when it runs out of data or time. */
+export interface NextPlan {
+  data_limit: number;
+  expire_days: number;
+  carry_over: boolean;
+}
+
+export interface UserPage {
+  users: User[];
+  total: number;
+}
+
+export type UserCounts = Partial<Record<UserStatus | "total" | "online", number>>;
+
+export interface UsagePoint {
+  hour: number;
+  uplink: number;
+  downlink: number;
+}
+
+export type BulkAction =
+  | { action: "enable" | "disable" | "delete" | "reset" | "revoke" }
+  | { action: "extend"; days: number }
+  | { action: "add_data"; bytes: number }
+  | { action: "set_groups"; group_ids: number[] };
+
+export interface Connected {
+  sessions: number;
+  addresses: string[];
+}
+
+export interface AccessGroup {
+  id: number;
+  name: string;
+  all_inbounds: boolean;
+  inbound_ids: number[];
+  users: number;
+}
+
+export interface UserTemplate {
+  id: number;
+  name: string;
+  data_limit: number;
+  expire_days: number;
+  on_hold: boolean;
+  reset_strategy: ResetStrategy;
+  ip_limit: number;
+  speed_up: number;
+  speed_down: number;
+  group_ids: number[];
+}

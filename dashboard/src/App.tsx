@@ -11,11 +11,14 @@ import { setUnauthorizedHandler } from "@/lib/api";
 import { authKey } from "@/lib/auth";
 import { CertificatesPage } from "@/pages/certificates";
 import { DashboardPage } from "@/pages/dashboard";
+import { GroupsPage } from "@/pages/groups";
 import { HostsPage } from "@/pages/hosts";
 import { InboundsPage } from "@/pages/inbounds";
 import { LoginPage } from "@/pages/login";
 import { SettingsPage } from "@/pages/settings";
 import { SetupPage } from "@/pages/setup";
+import { TemplatesPage } from "@/pages/templates";
+import { UsersPage } from "@/pages/users";
 import { NotFoundPage } from "@/pages/not-found";
 import { PlaceholderPage } from "@/pages/placeholder";
 
@@ -39,7 +42,10 @@ const router = createBrowserRouter(
       children: [
         { index: true, element: <DashboardPage /> },
         { path: "settings", element: <SettingsPage /> },
+        { path: "users", element: <UsersPage /> },
         { path: "inbounds", element: <InboundsPage /> },
+        { path: "groups", element: <GroupsPage /> },
+        { path: "templates", element: <TemplatesPage /> },
         { path: "hosts", element: <HostsPage /> },
         { path: "certificates", element: <CertificatesPage /> },
         ...pages
