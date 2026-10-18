@@ -45,13 +45,17 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function post<T>(path: string, body?: unknown): Promise<T> {
+function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   return api<T>(path, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
 }
+
+export const post = <T>(path: string, body?: unknown) => send<T>("POST", path, body);
+export const put = <T>(path: string, body?: unknown) => send<T>("PUT", path, body);
+export const del = <T>(path: string) => api<T>(path, { method: "DELETE" });
 
 export interface NodeStatus {
   running: boolean;
@@ -83,4 +87,70 @@ export interface TotpSetup {
   secret: string;
   otpauth: string;
   qr_svg: string;
+}
+
+export type Applied = "started" | "reloaded" | "restarted" | "stopped";
+
+export interface Inbound {
+  id: number;
+  tag: string;
+  remark: string;
+  enabled: boolean;
+  listen: string;
+  port: number;
+  protocol: string;
+  settings: Record<string, unknown>;
+  stream: Record<string, unknown>;
+  sniffing: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface InboundPayload {
+  tag?: string;
+  remark: string;
+  enabled: boolean;
+  listen: string;
+  port: number;
+  protocol: string;
+  settings: Record<string, unknown>;
+  stream: Record<string, unknown>;
+  sniffing: Record<string, unknown>;
+}
+
+export interface Certificate {
+  id: number;
+  name: string;
+  domains: string[];
+  source: string;
+  not_before: number;
+  not_after: number;
+  created_at: number;
+}
+
+export interface Host {
+  id: number;
+  inbound_id: number;
+  remark: string;
+  address: string;
+  port: number | null;
+  sni: string;
+  host: string;
+  path: string;
+  alpn: string;
+  fingerprint: string;
+  allow_insecure: boolean;
+  enabled: boolean;
+  priority: number;
+}
+
+export interface RealityCheck {
+  target: string;
+  tls13: boolean;
+  h2: boolean;
+  x25519: boolean;
+  certificate_valid: boolean;
+  latency_ms: number | null;
+  error: string | null;
+  suitable: boolean;
 }

@@ -81,6 +81,17 @@ impl Node for LocalNode {
     }
 
     async fn apply(&self, config: serde_json::Value) -> Result<Applied, NodeError> {
+        // A core with nothing to listen on does not run.
+        let no_inbound = match config.get("inbounds") {
+            None => true,
+            Some(serde_json::Value::Array(inbounds)) => inbounds.is_empty(),
+            // Malformed: the compiler says why.
+            Some(_) => false,
+        };
+        if no_inbound {
+            self.stop().await;
+            return Ok(Applied::Stopped);
+        }
         let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
         let (compiled, _) =
             zero_config::compile_config(&config, zero_core::GenerationId(generation))
@@ -227,7 +238,9 @@ mod tests {
             Err(NodeError::Config(_))
         ));
 
-        node.stop().await;
+        let stopped = node.apply(json!({"inbounds": [], "outbounds": []})).await;
+        assert_eq!(stopped, Ok(Applied::Stopped));
         assert!(!node.status().await.running);
+        node.stop().await;
     }
 }

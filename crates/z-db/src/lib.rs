@@ -7,8 +7,12 @@
 //! no-ops once applied.
 
 mod admins;
+mod certificates;
+mod inbounds;
 
 pub use admins::Admin;
+pub use certificates::Certificate;
+pub use inbounds::{Host, HostFields, Inbound, InboundFields};
 
 use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{AnyPool, Row};
@@ -126,5 +130,72 @@ mod tests {
             Database::open("mysql://x").await,
             Err(DbError::Url(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn inbounds_hosts_and_certificates_round_trip() {
+        let dir = std::env::temp_dir().join(format!("z-db-inbounds-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Database::open(&format!("sqlite://{}/panel.db", dir.display()))
+            .await
+            .unwrap();
+        let fields = crate::InboundFields {
+            tag: "vless-443".into(),
+            remark: "Reality".into(),
+            enabled: true,
+            listen: String::new(),
+            port: 443,
+            protocol: "vless".into(),
+            settings: "{}".into(),
+            stream: "{}".into(),
+            sniffing: "{}".into(),
+        };
+        let inbound = db.create_inbound(&fields).await.unwrap();
+        assert!(db.create_inbound(&fields).await.is_err(), "tags are unique");
+        let changed = crate::InboundFields {
+            port: 8443,
+            enabled: false,
+            ..fields.clone()
+        };
+        let updated = db
+            .update_inbound(inbound.id, &changed)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((updated.port, updated.enabled), (8443, false));
+        assert_eq!(db.inbounds().await.unwrap().len(), 1);
+
+        let host = db
+            .create_host(
+                inbound.id,
+                &crate::HostFields {
+                    remark: "CDN".into(),
+                    address: "cdn.example".into(),
+                    enabled: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(host.fields.port, None);
+        assert_eq!(db.hosts().await.unwrap().len(), 1);
+
+        assert!(db.delete_inbound(inbound.id).await.unwrap());
+        assert!(
+            db.hosts().await.unwrap().is_empty(),
+            "hosts go with their inbound"
+        );
+        assert!(!db.delete_inbound(inbound.id).await.unwrap());
+
+        let certificate = db
+            .create_certificate("example", "example.com", "CERT", "KEY", "upload", 1, 2)
+            .await
+            .unwrap();
+        assert_eq!(
+            db.certificate(certificate.id).await.unwrap(),
+            Some(certificate.clone())
+        );
+        assert!(db.delete_certificate(certificate.id).await.unwrap());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

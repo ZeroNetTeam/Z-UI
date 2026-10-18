@@ -11,6 +11,7 @@ export function FormError({ error }: { error: unknown }) {
     const minutes = Math.ceil((error.retryAfter ?? 0) / 60);
     text = t(`errors.${error.code}`, {
       defaultValue: error.message,
+      message: error.message,
       minutes: new Intl.NumberFormat(i18n.language).format(minutes),
     });
   }

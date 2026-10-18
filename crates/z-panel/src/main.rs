@@ -4,6 +4,7 @@ mod api;
 mod assets;
 mod auth;
 mod config;
+mod core_config;
 mod error;
 mod server;
 mod tls;
@@ -44,20 +45,6 @@ async fn main() -> anyhow::Result<()> {
     };
     let node = Arc::new(z_node::LocalNode::new());
 
-    // Until the panel builds the core's configuration from its database
-    // (phase 3), a hand-written one can be dropped next to it.
-    let core_config = config.data_dir.join("core.json");
-    if core_config.exists() {
-        let text = std::fs::read_to_string(&core_config)
-            .with_context(|| format!("reading {}", core_config.display()))?;
-        let value: serde_json::Value =
-            serde_json::from_str(&text).context("core.json is not JSON")?;
-        match node.apply(value).await {
-            Ok(applied) => tracing::info!(?applied, "core started"),
-            Err(error) => tracing::error!(%error, "the core did not start"),
-        }
-    }
-
     let state = server::AppState::new(
         config.clone(),
         db.clone(),
@@ -73,6 +60,10 @@ async fn main() -> anyhow::Result<()> {
         let token = hex::encode(rand::random::<[u8; 16]>());
         *state.setup_token() = Some(token.clone());
         tracing::warn!("no admin yet; create one at {address}setup?token={token}");
+    }
+    match core_config::sync(&state).await {
+        Ok(applied) => tracing::info!(?applied, "core configured from the database"),
+        Err(error) => tracing::error!(error = %error.message, "the core did not start"),
     }
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await

@@ -25,6 +25,9 @@ pub enum Applied {
     Reloaded,
     /// Listeners changed: handed over to a new server without a restart.
     Restarted,
+    /// The configuration has no inbound, so the core stopped (or stayed
+    /// stopped).
+    Stopped,
 }
 
 /// One account's bytes since the last reset.

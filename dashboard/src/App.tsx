@@ -9,7 +9,10 @@ import { ThemeProvider } from "@/lib/theme";
 import { RequireAdmin } from "@/components/require-admin";
 import { setUnauthorizedHandler } from "@/lib/api";
 import { authKey } from "@/lib/auth";
+import { CertificatesPage } from "@/pages/certificates";
 import { DashboardPage } from "@/pages/dashboard";
+import { HostsPage } from "@/pages/hosts";
+import { InboundsPage } from "@/pages/inbounds";
 import { LoginPage } from "@/pages/login";
 import { SettingsPage } from "@/pages/settings";
 import { SetupPage } from "@/pages/setup";
@@ -36,6 +39,9 @@ const router = createBrowserRouter(
       children: [
         { index: true, element: <DashboardPage /> },
         { path: "settings", element: <SettingsPage /> },
+        { path: "inbounds", element: <InboundsPage /> },
+        { path: "hosts", element: <HostsPage /> },
+        { path: "certificates", element: <CertificatesPage /> },
         ...pages
           .filter((item) => item.phase !== undefined)
           .map((item) => ({ path: item.to.slice(1), element: <PlaceholderPage item={item} /> })),

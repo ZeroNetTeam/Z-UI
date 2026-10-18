@@ -53,7 +53,10 @@ pub fn now() -> u64 {
 /// The code an authenticator app shows for `secret` now.
 #[cfg(test)]
 pub fn current_code(secret: &str) -> String {
-    hotp(&base32_decode(secret).expect("a base32 secret"), now() / STEP)
+    hotp(
+        &base32_decode(secret).expect("a base32 secret"),
+        now() / STEP,
+    )
 }
 
 /// RFC 4226's HOTP for one counter value.

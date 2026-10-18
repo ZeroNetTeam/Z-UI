@@ -35,6 +35,8 @@ struct Inner {
     pending_totp: Mutex<HashMap<i64, (String, Instant)>>,
     /// The panel itself terminates TLS.
     tls: bool,
+    /// Held while the core's configuration changes, one change at a time.
+    core_lock: tokio::sync::Mutex<()>,
 }
 
 impl AppState {
@@ -55,6 +57,7 @@ impl AppState {
                 setup_token: Mutex::new(None),
                 pending_totp: Mutex::new(HashMap::new()),
                 tls,
+                core_lock: tokio::sync::Mutex::new(()),
             }),
         }
     }
@@ -81,6 +84,10 @@ impl AppState {
 
     pub fn tls(&self) -> bool {
         self.inner.tls
+    }
+
+    pub fn core_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.inner.core_lock
     }
 
     pub fn setup_token(&self) -> std::sync::MutexGuard<'_, Option<String>> {

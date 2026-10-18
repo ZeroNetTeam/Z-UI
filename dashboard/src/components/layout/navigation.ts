@@ -1,6 +1,7 @@
 import {
   BoxesIcon,
   CpuIcon,
+  FileKey2Icon,
   LayoutDashboardIcon,
   LayoutTemplateIcon,
   NetworkIcon,
@@ -35,8 +36,8 @@ export const navigation: NavGroup[] = [
     items: [
       { to: "/", label: "dashboard", icon: LayoutDashboardIcon },
       { to: "/users", label: "users", icon: UsersIcon, phase: 4 },
-      { to: "/inbounds", label: "inbounds", icon: WaypointsIcon, phase: 3 },
-      { to: "/hosts", label: "hosts", icon: NetworkIcon, phase: 3 },
+      { to: "/inbounds", label: "inbounds", icon: WaypointsIcon },
+      { to: "/hosts", label: "hosts", icon: NetworkIcon },
       { to: "/groups", label: "groups", icon: BoxesIcon, phase: 4 },
       { to: "/templates", label: "templates", icon: LayoutTemplateIcon, phase: 4 },
       { to: "/nodes", label: "nodes", icon: ServerIcon, soon: true },
@@ -46,6 +47,7 @@ export const navigation: NavGroup[] = [
   {
     label: "configuration",
     items: [
+      { to: "/certificates", label: "certificates", icon: FileKey2Icon },
       { to: "/core", label: "core", icon: CpuIcon, phase: 7 },
       { to: "/settings", label: "settings", icon: SettingsIcon },
     ],
