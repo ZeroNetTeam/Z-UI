@@ -5,6 +5,10 @@ Z-UI is licensed under the GNU General Public License, version 3 or later
 
 ## Code from other projects
 
+Only the dashboard (TypeScript UI) borrows code; the backend and everything
+under it is Z-UI's own Rust, with no code from PasarGuard (Python) or 3X-UI
+(Go).
+
 Some dashboard files are adapted from **PasarGuard**
 (<https://github.com/PasarGuard/panel>), © PasarGuard organization, licensed
 under the **GNU Affero General Public License, version 3**. GPLv3 §13 allows
