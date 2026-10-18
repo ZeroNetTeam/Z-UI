@@ -6,7 +6,7 @@ on:
 
 env:
   # zray-core, checked out where the workspace expects it (resources/zray-core).
-  CORE_REPOSITORY: AGlegendery/zray-core
+  CORE_REPOSITORY: ZeroNetTeam/Zray-Core
   CORE_REF: main
   CARGO_TERM_COLOR: always
 

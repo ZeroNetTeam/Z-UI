@@ -70,7 +70,7 @@
 
 **تحویل:** تست برای هر مورد، و یه برنامه‌ی نمونه که با این API کاربر بسازه و آمارش رو بخونه.
 
-> همه‌ی بخش‌های فاز ۰ پیاده شدن. zray-core حالا ریپوی جدای خودش رو داره (`zray-core`، جدا شده از ZeroNet با حفظ تاریخچه) و پنل از `resources/zray-core` می‌سازه. مدیریت کاربر روی VLESS، VMess، Trojan، Shadowsocks (قدیمی و ۲۰۲۲)، Hysteria2، TUIC، AnyTLS، ZeroV1 و WireGuard کار می‌کنه. تغییر inbound بدون ری‌استارت با `zero_runtime::host::Host` انجام می‌شه. مستندات در `docs/config-compatibility.md` هست.
+> همه‌ی بخش‌های فاز ۰ پیاده شدن. zray-core حالا ریپوی خودش رو داره ([ZeroNetTeam/Zray-Core](https://github.com/ZeroNetTeam/Zray-Core)) و پنل از `resources/zray-core` می‌سازه. مدیریت کاربر روی VLESS، VMess، Trojan، Shadowsocks (قدیمی و ۲۰۲۲)، Hysteria2، TUIC، AnyTLS، ZeroV1 و WireGuard کار می‌کنه. تغییر inbound بدون ری‌استارت با `zero_runtime::host::Host` انجام می‌شه. مستندات در `docs/config-compatibility.md` هست.
 >
 > peerهای WireGuard و کاربرهای ZeroV1 بدون ری‌لود اضافه و حذف می‌شن و جدا متر می‌شن، محدودیت سرعت روی UDP (Hysteria2، TUIC، ZeroV1 و WireGuard) هم اعمال می‌شه، و باگ salt شادوساکس `aes-128-gcm` درست شد.
 
