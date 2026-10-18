@@ -338,13 +338,13 @@ mod tests {
     use crate::server::testing::panel;
 
     const CERT: &str = include_str!(
-        "../../../../resources/ZeroNet/crates/zero-runtime/tests/fixtures/loopback-cert.pem"
+        "../../../../resources/zray-core/crates/zero-runtime/tests/fixtures/loopback-cert.pem"
     );
     const KEY: &str = include_str!(
-        "../../../../resources/ZeroNet/crates/zero-runtime/tests/fixtures/loopback-key.pem"
+        "../../../../resources/zray-core/crates/zero-runtime/tests/fixtures/loopback-key.pem"
     );
     const OTHER_KEY: &str = include_str!(
-        "../../../../resources/ZeroNet/crates/zero-runtime/tests/fixtures/big-decoy-key.pem"
+        "../../../../resources/zray-core/crates/zero-runtime/tests/fixtures/big-decoy-key.pem"
     );
 
     fn free_port() -> u16 {

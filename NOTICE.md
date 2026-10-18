@@ -27,7 +27,7 @@ repository being public.
 
 ## Dependencies
 
-- zray-core (`resources/ZeroNet`), MIT.
+- zray-core (`resources/zray-core`), MIT.
 - Its vendored rustls fork, MPL-2.0; netstack-smoltcp, MIT or Apache-2.0.
 - The dashboard's npm packages (React, Radix UI, Tailwind CSS, TanStack,
   i18next, lucide) are MIT or ISC; the Vazirmatn font is OFL-1.1.

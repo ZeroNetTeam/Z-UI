@@ -53,7 +53,7 @@
 
 ## 🔧 فاز ۰: آماده‌سازی zray-core
 
-تغییرات داخل `ZeroNet/crates/zero-runtime` و `zero-config`، به‌صورت API کتابخونه‌ای روی `Server`.
+تغییرات داخل `zray-core/crates/zero-runtime` و `zero-config`، به‌صورت API کتابخونه‌ای روی `Server`.
 
 | # | کار | اولویت | وضعیت |
 |---|---|---|---|
@@ -70,11 +70,9 @@
 
 **تحویل:** تست برای هر مورد، و یه برنامه‌ی نمونه که با این API کاربر بسازه و آمارش رو بخونه.
 
-> همه‌ی بخش‌های فاز ۰ پیاده شدن (برنچ `z-ui/phase-0` در `resources/ZeroNet`). مدیریت کاربر روی VLESS، VMess، Trojan، Shadowsocks (قدیمی و ۲۰۲۲)، Hysteria2، TUIC و AnyTLS کار می‌کنه. تغییر inbound بدون ری‌استارت با `zero_runtime::host::Host` انجام می‌شه. مستندات در `docs/config-compatibility.md` هست.
+> همه‌ی بخش‌های فاز ۰ پیاده شدن. zray-core حالا ریپوی جدای خودش رو داره (`zray-core`، جدا شده از ZeroNet با حفظ تاریخچه) و پنل از `resources/zray-core` می‌سازه. مدیریت کاربر روی VLESS، VMess، Trojan، Shadowsocks (قدیمی و ۲۰۲۲)، Hysteria2، TUIC، AnyTLS، ZeroV1 و WireGuard کار می‌کنه. تغییر inbound بدون ری‌استارت با `zero_runtime::host::Host` انجام می‌شه. مستندات در `docs/config-compatibility.md` هست.
 >
-> WireGuard هم در سطح بسته برای هر peer متر می‌شه و باگ salt شادوساکس `aes-128-gcm` درست شد.
->
-> **برای بعد:** متر کردن کاربرهای ZeroV1 (Tide)، و اعمال محدودیت سرعت روی UDP در Hysteria2 و TUIC.
+> peerهای WireGuard و کاربرهای ZeroV1 بدون ری‌لود اضافه و حذف می‌شن و جدا متر می‌شن، محدودیت سرعت روی UDP (Hysteria2، TUIC، ZeroV1 و WireGuard) هم اعمال می‌شه، و باگ salt شادوساکس `aes-128-gcm` درست شد.
 
 ## 🏗️ فاز ۱: اسکلت و سیستم طراحی
 

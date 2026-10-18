@@ -17,9 +17,9 @@ z-db = { path = "crates/z-db" }
 z-node = { path = "crates/z-node" }
 
 # zray-core, from its checkout next to the panel (see README.md).
-zero-runtime = { path = "resources/ZeroNet/crates/zero-runtime" }
-zero-config = { path = "resources/ZeroNet/crates/zero-config" }
-zero-core = { path = "resources/ZeroNet/crates/zero-core" }
+zero-runtime = { path = "resources/zray-core/crates/zero-runtime" }
+zero-config = { path = "resources/zray-core/crates/zero-config" }
+zero-core = { path = "resources/zray-core/crates/zero-core" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "time", "sync", "signal", "fs"] }
 serde = { version = "1", features = ["derive"] }
@@ -52,10 +52,10 @@ hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] }
 
 # zray-core patches crates.io dependencies, and Cargo applies only the root
 # workspace's patches: the panel must carry the same ones. Keep in step with
-# resources/ZeroNet/Cargo.toml.
+# resources/zray-core/Cargo.toml.
 [patch.crates-io]
-rustls = { path = "resources/ZeroNet/vendor/rustls" }
-netstack-smoltcp = { path = "resources/ZeroNet/vendor/netstack-smoltcp" }
+rustls = { path = "resources/zray-core/vendor/rustls" }
+netstack-smoltcp = { path = "resources/zray-core/vendor/netstack-smoltcp" }
 
 [profile.release]
 codegen-units = 1

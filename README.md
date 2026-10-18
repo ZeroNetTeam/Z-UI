@@ -2,7 +2,7 @@
 
 # Z-UI
 
-**A control panel for [zray-core](https://github.com/zeghostwriter/ZeroNet)**
+**A control panel for [zray-core](https://github.com/AGlegendery/zray-core)**
 · پنل مدیریت برای zray-core
 
 </div>
@@ -19,10 +19,12 @@ dashboard inside. See [ROADMAP.md](ROADMAP.md) for the plan (in Persian).
 Z-UI builds against a checkout of zray-core next to it:
 
 ```sh
-git clone https://github.com/zeghostwriter/ZeroNet resources/ZeroNet
-git -C resources/ZeroNet switch z-ui/phase-0
+git clone https://github.com/AGlegendery/zray-core resources/zray-core
 make            # dashboard (npm) + release binary: target/release/z-ui
 ```
+
+A zray-core checkout elsewhere works too: link it there with
+`ln -s /path/to/zray-core resources/zray-core`.
 
 Rust 1.95+ and Node 22+ are needed. `cargo build` alone also works: without a
 built dashboard the binary serves a page saying how to build one.
