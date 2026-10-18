@@ -85,5 +85,6 @@ make lint    # rustfmt, clippy, TypeScript
 
 ## License
 
-MIT. Every part of the panel, dashboard included, is written for Z-UI; no
-code is taken from 3X-UI (GPL-3.0) or PasarGuard (AGPL-3.0).
+GPL-3.0-or-later (see `LICENSE`). Some dashboard files are adapted from
+PasarGuard and keep its AGPL-3.0 terms; [NOTICE.md](NOTICE.md) says which
+and what that means. zray-core itself is MIT.
