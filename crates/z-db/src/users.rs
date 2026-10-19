@@ -671,9 +671,11 @@ impl Database {
 
     /// Everything every user has ever moved.
     pub async fn lifetime_total(&self) -> Result<i64, DbError> {
-        let row = sqlx::query("SELECT CAST(COALESCE(SUM(lifetime_traffic), 0) AS BIGINT) AS total FROM users")
-            .fetch_one(self.pool())
-            .await?;
+        let row = sqlx::query(
+            "SELECT CAST(COALESCE(SUM(lifetime_traffic), 0) AS BIGINT) AS total FROM users",
+        )
+        .fetch_one(self.pool())
+        .await?;
         Ok(row.try_get("total")?)
     }
 

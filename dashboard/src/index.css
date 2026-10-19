@@ -28,6 +28,12 @@
   --destructive: oklch(0.58 0.21 27);
   --success: oklch(0.6 0.15 150);
   --info: oklch(0.6 0.12 245);
+  --warning: oklch(0.7 0.16 55);
+  /* Chart marks: the two series (download, upload), checked with the
+     data-viz palette validator against the card (adjacent separation under
+     colour blindness, lightness band, contrast). */
+  --chart-1: #b7810f;
+  --chart-2: #3786c3;
   --border: oklch(0.91 0.006 85);
   --input: oklch(0.89 0.006 85);
   --ring: oklch(0.64 0.13 78);
@@ -61,6 +67,11 @@
   --destructive: oklch(0.65 0.2 25);
   --success: oklch(0.74 0.15 150);
   --info: oklch(0.72 0.12 245);
+  --warning: oklch(0.78 0.15 60);
+  /* Not the UI's own gold and blue: those sit above the lightness band
+     chart marks belong in on a dark surface, and failed the validator. */
+  --chart-1: #b58b22;
+  --chart-2: #348dcf;
   --border: oklch(1 0 0 / 9%);
   --input: oklch(1 0 0 / 13%);
   --ring: oklch(0.8 0.135 85);
@@ -99,6 +110,9 @@
   --color-destructive: var(--destructive);
   --color-success: var(--success);
   --color-info: var(--info);
+  --color-warning: var(--warning);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

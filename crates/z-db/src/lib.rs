@@ -310,7 +310,9 @@ mod tests {
         assert_eq!((total[0].uplink, total[0].downlink), (1301, 2402));
         let top = db.top_usage(0, 5).await.unwrap();
         assert_eq!(
-            top.iter().map(|u| (u.username.as_str(), u.uplink + u.downlink)).collect::<Vec<_>>(),
+            top.iter()
+                .map(|u| (u.username.as_str(), u.uplink + u.downlink))
+                .collect::<Vec<_>>(),
             [("bob", 3000), ("alice", 703)]
         );
         assert_eq!(db.top_usage(0, 1).await.unwrap().len(), 1);

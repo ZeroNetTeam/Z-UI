@@ -15,6 +15,7 @@ import { GroupsPage } from "@/pages/groups";
 import { HostsPage } from "@/pages/hosts";
 import { InboundsPage } from "@/pages/inbounds";
 import { LoginPage } from "@/pages/login";
+import { LogsPage } from "@/pages/logs";
 import { SettingsPage } from "@/pages/settings";
 import { SetupPage } from "@/pages/setup";
 import { TemplatesPage } from "@/pages/templates";
@@ -48,6 +49,7 @@ const router = createBrowserRouter(
         { path: "templates", element: <TemplatesPage /> },
         { path: "hosts", element: <HostsPage /> },
         { path: "certificates", element: <CertificatesPage /> },
+        { path: "logs", element: <LogsPage /> },
         ...pages
           .filter((item) => item.phase !== undefined)
           .map((item) => ({ path: item.to.slice(1), element: <PlaceholderPage item={item} /> })),

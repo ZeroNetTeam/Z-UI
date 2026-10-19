@@ -5,6 +5,7 @@ import {
   LayoutDashboardIcon,
   LayoutTemplateIcon,
   NetworkIcon,
+  ScrollTextIcon,
   ServerIcon,
   SettingsIcon,
   ShieldCheckIcon,
@@ -49,6 +50,7 @@ export const navigation: NavGroup[] = [
     items: [
       { to: "/certificates", label: "certificates", icon: FileKey2Icon },
       { to: "/core", label: "core", icon: CpuIcon, phase: 7 },
+      { to: "/logs", label: "logs", icon: ScrollTextIcon },
       { to: "/settings", label: "settings", icon: SettingsIcon },
     ],
   },

@@ -288,3 +288,60 @@ export interface Device {
   first_seen: number;
   last_seen: number;
 }
+
+export interface SystemSnapshot {
+  at: number;
+  cores: number;
+  cpu: number | null;
+  load: [number, number, number] | null;
+  mem_total: number | null;
+  mem_used: number | null;
+  swap_total: number | null;
+  swap_used: number | null;
+  disk_total: number | null;
+  disk_used: number | null;
+  rx_rate: number | null;
+  tx_rate: number | null;
+  rx_total: number | null;
+  tx_total: number | null;
+  uptime: number | null;
+  panel_rss: number | null;
+}
+
+export interface SystemPoint {
+  t: number;
+  cpu: number | null;
+  mem: number | null;
+  rx: number | null;
+  tx: number | null;
+}
+
+export interface SystemView {
+  now: SystemSnapshot | null;
+  history: SystemPoint[];
+  panel_uptime: number;
+}
+
+export interface TopUser {
+  id: number;
+  username: string;
+  uplink: number;
+  downlink: number;
+}
+
+export interface TrafficView {
+  points: UsagePoint[];
+  top: TopUser[];
+  lifetime: number;
+}
+
+export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
+
+export interface LogRecord {
+  id: number;
+  time: number;
+  level: LogLevel;
+  source: "core" | "panel" | "other";
+  target: string;
+  message: string;
+}
