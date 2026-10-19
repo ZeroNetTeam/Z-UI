@@ -27,7 +27,8 @@ fn escape(text: &str) -> String {
     out
 }
 
-fn qr(text: &str) -> String {
+/// A QR code of `text`, as SVG.
+pub fn qr(text: &str) -> String {
     qrcode::QrCode::new(text.as_bytes())
         .map(|code| {
             code.render::<qrcode::render::svg::Color>()

@@ -10,10 +10,12 @@ import {
   ChevronRightIcon,
   DatabaseIcon,
   KeyRoundIcon,
+  LinkIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PlayIcon,
   PlusIcon,
+  QrCodeIcon,
   RefreshCwIcon,
   RotateCcwIcon,
   SearchIcon,
@@ -30,6 +32,7 @@ import { FormError } from "@/components/form-error";
 import { PageHeader } from "@/components/layout/layout";
 import { GroupPicker, useGroups } from "@/components/pickers";
 import { OnlineDot, StatusBadge, UsageBar } from "@/components/user-cells";
+import { SubscriptionDialog } from "@/components/subscription-dialog";
 import { UsageDialog } from "@/components/usage-dialog";
 import { UserDialog } from "@/components/user-dialog";
 import { Button } from "@/components/ui/button";
@@ -47,7 +50,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, del, post, type BulkAction, type User, type UserCounts, type UserPage } from "@/lib/api";
+import { api, del, post, type BulkAction, type User, type UserCounts, type UserPage, type UserSubscription } from "@/lib/api";
 import { GB, statuses } from "@/lib/users";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +83,7 @@ export function UsersPage() {
   const [editing, setEditing] = useState<User | undefined>();
   const [dialog, setDialog] = useState(false);
   const [usageOf, setUsageOf] = useState<User | null>(null);
+  const [subscriptionOf, setSubscriptionOf] = useState<User | null>(null);
   const [amount, setAmount] = useState<"extend" | "add_data" | null>(null);
   const [regroup, setRegroup] = useState(false);
   const query = useSettled(search.trim());
@@ -318,6 +322,7 @@ export function UsersPage() {
                         user={user}
                         onEdit={() => open(user)}
                         onUsage={() => setUsageOf(user)}
+                        onSubscription={() => setSubscriptionOf(user)}
                         onAction={(action) => act.mutate({ id: user.id, action })}
                         onDelete={async () => {
                           await del(`users/${user.id}`);
@@ -352,6 +357,7 @@ export function UsersPage() {
 
       <UserDialog open={dialog} onOpenChange={setDialog} user={editing} />
       <UsageDialog user={usageOf} onOpenChange={(isOpen) => !isOpen && setUsageOf(null)} />
+      <SubscriptionDialog user={subscriptionOf} onOpenChange={(isOpen) => !isOpen && setSubscriptionOf(null)} />
       <RegroupDialog
         open={regroup}
         onOpenChange={setRegroup}
@@ -417,12 +423,14 @@ function UserActions({
   user,
   onEdit,
   onUsage,
+  onSubscription,
   onAction,
   onDelete,
 }: {
   user: User;
   onEdit: () => void;
   onUsage: () => void;
+  onSubscription: () => void;
   onAction: (action: "reset" | "revoke" | "end-sessions") => void;
   onDelete: () => Promise<unknown>;
 }) {
@@ -452,6 +460,18 @@ function UserActions({
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={onUsage}>
                   <BarChart3Icon /> {t("users.usageChart")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onSubscription}>
+                  <QrCodeIcon /> {t("subscription.open")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    void api<UserSubscription>(`users/${user.id}/subscription`).then((sub) =>
+                      navigator.clipboard?.writeText(sub.url),
+                    );
+                  }}
+                >
+                  <LinkIcon /> {t("subscription.copyUrl")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => onAction("reset")}>

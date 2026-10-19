@@ -59,6 +59,7 @@ pub fn router() -> Router<AppState> {
         .route("/keys/password", get(keys::password))
         .route("/keys/vless-encryption", get(keys::vless_encryption))
         .route("/tools/reality-check", get(tools::reality_check))
+        .route("/tools/qr", get(tools::qr))
         .route("/users", get(users::list).post(users::create))
         .route("/users/counts", get(users::counts))
         .route("/users/bulk", post(users::bulk))

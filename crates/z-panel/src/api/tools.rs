@@ -145,3 +145,26 @@ fn public(ip: IpAddr) -> bool {
         }
     }
 }
+
+#[derive(Deserialize)]
+pub struct QrQuery {
+    text: String,
+}
+
+#[derive(Serialize)]
+pub struct Qr {
+    svg: String,
+}
+
+/// A QR code of `text` (a config link), as SVG, for the dashboard to show.
+pub async fn qr(_: CurrentAdmin, Query(query): Query<QrQuery>) -> ApiResult<Json<Qr>> {
+    if query.text.is_empty() || query.text.len() > 2048 {
+        return Err(ApiError::bad_request(
+            "invalid_text",
+            "1 to 2048 bytes of text",
+        ));
+    }
+    Ok(Json(Qr {
+        svg: crate::subscription::page::qr(&query.text),
+    }))
+}

@@ -361,7 +361,9 @@ mod tests {
         let devices = db.user_devices(alice.id).await.unwrap();
         assert_eq!(devices.len(), 1, "the same hwid is one device");
         assert_eq!(devices[0].model, "Pixel");
-        db.touch_subscription(alice.id, "v2rayNG/1.9").await.unwrap();
+        db.touch_subscription(alice.id, "v2rayNG/1.9")
+            .await
+            .unwrap();
         assert_eq!(
             db.user(alice.id).await.unwrap().unwrap().sub_user_agent,
             "v2rayNG/1.9"

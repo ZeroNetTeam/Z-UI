@@ -109,11 +109,13 @@
     "invalid_group": "That group doesn't exist.",
     "invalid_name": "A name of 1 to 64 characters is needed.",
     "too_many": "That's more than allowed at once.",
-    "not_found": "Not found; it may have been deleted."
+    "not_found": "Not found; it may have been deleted.",
+    "invalid_subscription": "The subscription settings are not valid: {{message}}",
+    "invalid_text": "That text is not valid."
   },
   "settings": {
     "title": "Settings",
-    "subtitle": "Your account's security",
+    "subtitle": "Users' subscriptions and your account's security",
     "passwordTitle": "Change password",
     "passwordBody": "Changing it signs out every other session of yours.",
     "current": "Current password",
@@ -366,7 +368,9 @@
     "bulkRevokeBody_one": "{{count, number}} user gets new credentials; its old config stops working.",
     "bulkRevokeBody_other": "{{count, number}} users get new credentials; their old configs stop working.",
     "bulkDeleteBody_one": "{{count, number}} user is deleted for good.",
-    "bulkDeleteBody_other": "{{count, number}} users are deleted for good."
+    "bulkDeleteBody_other": "{{count, number}} users are deleted for good.",
+    "hwidLimit": "Max devices",
+    "hwidLimitHint": "Devices the subscription may be fetched on (from the app's x-hwid header). Blank means any."
   },
   "groups": {
     "title": "Groups",
@@ -406,5 +410,43 @@
     "empty": "No templates yet.",
     "deleteTitle": "Delete template",
     "deleteBody": "{{name}} is deleted; users made with it stay as they are."
+  },
+  "subscription": {
+    "title": "Subscription of {{name}}",
+    "open": "Subscription & QR",
+    "copyUrl": "Copy subscription link",
+    "copyLink": "Copy link",
+    "qr": "Show QR",
+    "urlHint": "Put this link in the user's app; its configs and usage stay up to date on their own.",
+    "configs_one": "Configs ({{count, number}})",
+    "configs_other": "Configs ({{count, number}})",
+    "noConfigs": "No configs: the user is not active, or its groups give no inbound.",
+    "section": "Subscription and devices",
+    "lastFetch": "Last fetched {{when}} by {{app}}",
+    "neverFetched": "The subscription has not been fetched yet.",
+    "settingsTitle": "Subscription",
+    "settingsBody": "Users' subscription links, and what apps show from them.",
+    "path": "Subscription path",
+    "pathHint": "Users' links look like {{example}}",
+    "publicUrl": "Public address",
+    "publicUrlHint": "The address links are made with; blank for the one the panel is opened at.",
+    "serverAddress": "Server address in configs",
+    "serverAddressHint": "For inbounds without a host; blank for the name the app fetched the subscription by.",
+    "updateHours": "Update every (hours)",
+    "profileTitle": "Profile name in apps",
+    "supportUrl": "Support link",
+    "remarkTemplate": "Each config's name",
+    "remarkHint": "Variables: {{variables}}",
+    "hwidRequired": "Only apps that send a device id",
+    "hwidRequiredHint": "For a user with a device limit, an app that sends no x-hwid is refused.",
+    "template": "Custom subscription page",
+    "templateHint": "Your own HTML for browsers; {{data}} becomes the subscription as JSON. Blank for the built-in page."
+  },
+  "devices": {
+    "title": "Devices",
+    "none": "No device recorded yet.",
+    "forget": "Forget device",
+    "forgetAll": "Forget all",
+    "lastSeen": "Last seen {{when}}"
   }
 }

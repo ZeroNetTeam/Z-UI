@@ -23,6 +23,9 @@ const user: User = {
   online: false,
   group_ids: [1],
   next_plan: { data_limit: 100 * GB, expire_days: 30, carry_over: true },
+  hwid_limit: 3,
+  sub_updated_at: null,
+  sub_user_agent: "",
   uuid: "u",
   password: "p",
   sub_token: "t",
@@ -40,6 +43,7 @@ describe("the user form", () => {
       expire_at: 2_000_000_000,
       reset_strategy: "month",
       ip_limit: 2,
+      hwid_limit: 3,
       speed_up: 1_250_000,
       speed_down: 2_500_000,
       group_ids: [1],
@@ -74,6 +78,7 @@ describe("the user form", () => {
       ip_limit: 1,
       speed_up: 0,
       speed_down: 0,
+      hwid_limit: 2,
       group_ids: [],
     };
     const form = withTemplate({ ...emptyForm([4]), username: "dan" }, template, 0);

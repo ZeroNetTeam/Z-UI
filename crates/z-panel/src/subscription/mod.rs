@@ -22,7 +22,7 @@
 
 pub mod endpoint;
 pub mod formats;
-mod page;
+pub mod page;
 
 use std::collections::HashMap;
 

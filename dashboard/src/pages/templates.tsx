@@ -26,6 +26,7 @@ interface TemplateForm {
   onHold: boolean;
   resetStrategy: ResetStrategy;
   ipLimit: string;
+  hwidLimit: string;
   speedUpMbit: string;
   speedDownMbit: string;
   groupIds: number[];
@@ -39,6 +40,7 @@ function fromTemplate(template?: UserTemplate): TemplateForm {
     onHold: template?.on_hold ?? false,
     resetStrategy: template?.reset_strategy ?? "no_reset",
     ipLimit: template?.ip_limit ? String(template.ip_limit) : "",
+    hwidLimit: template?.hwid_limit ? String(template.hwid_limit) : "",
     speedUpMbit: bytesToMbit(template?.speed_up ?? 0),
     speedDownMbit: bytesToMbit(template?.speed_down ?? 0),
     groupIds: template?.group_ids ?? [],
@@ -67,6 +69,7 @@ function TemplateDialog({ open, onOpenChange, template }: { open: boolean; onOpe
         on_hold: form.onHold,
         reset_strategy: form.resetStrategy,
         ip_limit: whole(form.ipLimit),
+        hwid_limit: whole(form.hwidLimit),
         speed_up: mbitToBytes(form.speedUpMbit),
         speed_down: mbitToBytes(form.speedDownMbit),
         group_ids: form.groupIds,
@@ -122,6 +125,7 @@ function TemplateDialog({ open, onOpenChange, template }: { open: boolean; onOpe
               options={resetStrategies.map((value) => ({ value, label: t(`users.reset.${value}`) }))}
             />
             <Field label={t("users.ipLimit")} type="number" min={0} value={form.ipLimit} onChange={(e) => set({ ipLimit: e.target.value })} placeholder="∞" dir="ltr" />
+            <Field label={t("users.hwidLimit")} type="number" min={0} value={form.hwidLimit} onChange={(e) => set({ hwidLimit: e.target.value })} placeholder="∞" dir="ltr" />
             <Field label={t("users.speedDown")} type="number" min={0} step="any" value={form.speedDownMbit} onChange={(e) => set({ speedDownMbit: e.target.value })} placeholder="∞" dir="ltr" />
             <Field label={t("users.speedUp")} type="number" min={0} step="any" value={form.speedUpMbit} onChange={(e) => set({ speedUpMbit: e.target.value })} placeholder="∞" dir="ltr" />
           </div>

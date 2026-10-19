@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { FormError } from "@/components/form-error";
 import { PageHeader } from "@/components/layout/layout";
+import { SubscriptionSettingsCard } from "@/components/subscription-settings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -226,6 +227,7 @@ export function SettingsPage() {
     <>
       <PageHeader title={t("settings.title")} subtitle={t("settings.subtitle")} />
       <div className="grid gap-4">
+        <SubscriptionSettingsCard />
         <PasswordCard />
         {admin && <TotpCard admin={admin} />}
       </div>

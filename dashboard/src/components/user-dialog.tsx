@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Devices } from "@/components/devices";
 import { FormError } from "@/components/form-error";
 import { GroupPicker, useGroups } from "@/components/pickers";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { SwitchField } from "@/components/ui/switch";
 import { TextareaField } from "@/components/ui/textarea";
 import { api, post, put, type Connected, type User, type UserTemplate } from "@/lib/api";
 import { emptyForm, expiryIn, fromUser, toPayload, withTemplate, type UserForm } from "@/lib/user-form";
-import { daysUntil, formatDate, resetStrategies } from "@/lib/users";
+import { daysUntil, formatDate, relative, resetStrategies } from "@/lib/users";
 import { cn } from "@/lib/utils";
 
 export function useTemplates() {
@@ -345,7 +346,7 @@ export function UserDialog({
           <GroupPicker value={form.groupIds} onChange={(groupIds) => set({ groupIds })} hint={t("users.groupsHint")} />
 
           <Section title={t("common.advanced")}>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field
                 label={t("users.ipLimit")}
                 type="number"
@@ -355,6 +356,16 @@ export function UserDialog({
                 placeholder="∞"
                 dir="ltr"
                 hint={t("users.ipLimitHint")}
+              />
+              <Field
+                label={t("users.hwidLimit")}
+                type="number"
+                min={0}
+                value={form.hwidLimit}
+                onChange={(e) => set({ hwidLimit: e.target.value })}
+                placeholder="∞"
+                dir="ltr"
+                hint={t("users.hwidLimitHint")}
               />
               <Field
                 label={t("users.speedDown")}
@@ -379,6 +390,20 @@ export function UserDialog({
             </div>
             <TextareaField label={t("users.note")} value={form.note} onChange={(e) => set({ note: e.target.value })} className="min-h-16" />
           </Section>
+
+          {user && (
+            <Section title={t("subscription.section")}>
+              <p className="min-w-0 text-xs break-all text-muted-foreground" dir="auto">
+                {user.sub_updated_at
+                  ? t("subscription.lastFetch", {
+                      when: relative(user.sub_updated_at, i18n.language),
+                      app: user.sub_user_agent || "—",
+                    })
+                  : t("subscription.neverFetched")}
+              </p>
+              <Devices user={user} />
+            </Section>
+          )}
 
           {user?.online && (
             <Section title={t("users.connected", { count: connected.data?.sessions ?? 0 })}>

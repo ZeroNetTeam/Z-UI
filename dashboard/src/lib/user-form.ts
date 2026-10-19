@@ -22,6 +22,8 @@ export interface UserForm {
   speedDownMbit: string;
   note: string;
   groupIds: number[];
+  /** Devices the subscription may be fetched on (blank: any). */
+  hwidLimit: string;
   /** A plan to move on to when it runs out of data or time. */
   nextPlan: boolean;
   nextDataGb: string;
@@ -45,6 +47,7 @@ export function emptyForm(groupIds: number[] = []): UserForm {
     speedDownMbit: "",
     note: "",
     groupIds,
+    hwidLimit: "",
     nextPlan: false,
     nextDataGb: "",
     nextDays: "",
@@ -69,6 +72,7 @@ export function fromUser(user: User): UserForm {
     speedDownMbit: bytesToMbit(user.speed_down),
     note: user.note,
     groupIds: user.group_ids,
+    hwidLimit: count(user.hwid_limit),
     nextPlan: user.next_plan !== null,
     nextDataGb: bytesToGb(user.next_plan?.data_limit ?? 0),
     nextDays: count(user.next_plan?.expire_days ?? 0),
@@ -103,6 +107,7 @@ export function toPayload(form: UserForm, at = now()): UserPayload {
     speed_down: mbitToBytes(form.speedDownMbit),
     note: form.note.trim(),
     group_ids: form.groupIds,
+    hwid_limit: whole(form.hwidLimit),
     next_plan: form.nextPlan
       ? { data_limit: gbToBytes(form.nextDataGb), expire_days: whole(form.nextDays), carry_over: form.nextCarryOver }
       : null,
@@ -120,6 +125,7 @@ export function withTemplate(form: UserForm, template: UserTemplate, at = now())
     onHoldDays: onHold ? String(template.expire_days) : "",
     resetStrategy: template.reset_strategy,
     ipLimit: count(template.ip_limit),
+    hwidLimit: count(template.hwid_limit),
     speedUpMbit: bytesToMbit(template.speed_up),
     speedDownMbit: bytesToMbit(template.speed_down),
     groupIds: template.group_ids.length ? template.group_ids : form.groupIds,

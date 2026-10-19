@@ -38,6 +38,8 @@ pub struct Link {
 #[derive(Serialize)]
 pub struct UserSubscription {
     url: String,
+    /// A QR code of `url`, as SVG.
+    qr_svg: String,
     links: Vec<Link>,
 }
 
@@ -76,8 +78,10 @@ pub async fn user_subscription(
         settings.server_address.clone()
     };
     let endpoints = subscription::user_endpoints(&state, &user, &server).await?;
+    let url = subscription::url(&settings, &origin, &user.sub_token);
     Ok(Json(UserSubscription {
-        url: subscription::url(&settings, &origin, &user.sub_token),
+        qr_svg: subscription::page::qr(&url),
+        url,
         links: endpoints
             .iter()
             .map(|e| Link {

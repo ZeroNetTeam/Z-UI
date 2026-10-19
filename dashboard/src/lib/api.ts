@@ -180,6 +180,9 @@ export interface User {
   online: boolean;
   group_ids: number[];
   next_plan: NextPlan | null;
+  hwid_limit: number;
+  sub_updated_at: number | null;
+  sub_user_agent: string;
   uuid: string;
   password: string;
   sub_token: string;
@@ -201,6 +204,7 @@ export interface UserPayload {
   note: string;
   group_ids: number[];
   next_plan: NextPlan | null;
+  hwid_limit: number;
 }
 
 /** What a user moves on to when it runs out of data or time. */
@@ -252,5 +256,35 @@ export interface UserTemplate {
   ip_limit: number;
   speed_up: number;
   speed_down: number;
+  hwid_limit: number;
   group_ids: number[];
+}
+
+export interface SubscriptionSettings {
+  path: string;
+  public_url: string;
+  server_address: string;
+  update_hours: number;
+  title: string;
+  support_url: string;
+  remark_template: string;
+  hwid_required: boolean;
+  template: string;
+}
+
+export interface UserSubscription {
+  url: string;
+  qr_svg: string;
+  links: { remark: string; link: string }[];
+}
+
+export interface Device {
+  id: number;
+  hwid: string;
+  platform: string;
+  os_version: string;
+  model: string;
+  user_agent: string;
+  first_seen: number;
+  last_seen: number;
 }
