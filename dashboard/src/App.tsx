@@ -10,6 +10,7 @@ import { RequireAdmin } from "@/components/require-admin";
 import { setUnauthorizedHandler } from "@/lib/api";
 import { authKey } from "@/lib/auth";
 import { CertificatesPage } from "@/pages/certificates";
+import { CorePage } from "@/pages/core";
 import { DashboardPage } from "@/pages/dashboard";
 import { GroupsPage } from "@/pages/groups";
 import { HostsPage } from "@/pages/hosts";
@@ -50,6 +51,7 @@ const router = createBrowserRouter(
         { path: "hosts", element: <HostsPage /> },
         { path: "certificates", element: <CertificatesPage /> },
         { path: "logs", element: <LogsPage /> },
+        { path: "core", element: <CorePage /> },
         ...pages
           .filter((item) => item.phase !== undefined)
           .map((item) => ({ path: item.to.slice(1), element: <PlaceholderPage item={item} /> })),

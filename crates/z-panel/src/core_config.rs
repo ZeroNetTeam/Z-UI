@@ -233,9 +233,9 @@ pub async fn compile(
         &state.config().data_dir,
     )?;
     // The core's own compiler is the judge of what it can run.
-    let (_, notes) = zero_config::compile_config(&config, zero_core::GenerationId(1))
+    let (generation, notes) = zero_config::compile_config(&config, zero_core::GenerationId(1))
         .map_err(|error| ApiError::bad_request("invalid_core", error))?;
-    let warnings = notes
+    let mut warnings: Vec<Warning> = notes
         .diagnostics
         .into_iter()
         .map(|d| Warning {
@@ -243,7 +243,43 @@ pub async fn compile(
             message: d.message,
         })
         .collect();
+    warnings.extend(dns_warnings(settings, &generation.config));
     Ok((config, warnings))
+}
+
+/// What the core does with DNS that its compiler does not say: any outbound
+/// that sends traffic through another server makes the core refuse this
+/// machine's own resolver, whatever `leakPolicy` asks for, because on a client
+/// that resolver would answer outside the tunnel. On a panel's server that is
+/// a trap: with only `localhost` to ask, no name resolves, for direct
+/// connections too.
+fn dns_warnings(settings: &Value, config: &zero_config::RuntimeConfig) -> Vec<Warning> {
+    use zero_config::dns::{LeakPolicy, ResolverEndpoint};
+    let mut warnings = Vec::new();
+    let strict = config.dns.leak_policy == LeakPolicy::Strict;
+    if strict && settings["dns"]["leakPolicy"] == "fallback" {
+        warnings.push(Warning {
+            path: "dns.leakPolicy".into(),
+            message: "ignored: an outbound sends traffic through another server, and then the \
+                      core never uses this machine's own resolver"
+                .into(),
+        });
+    }
+    let only_system = config
+        .dns
+        .servers
+        .iter()
+        .all(|server| matches!(server.endpoint, ResolverEndpoint::System));
+    if strict && only_system {
+        warnings.push(Warning {
+            path: "dns.servers".into(),
+            message: "no usable resolver: names will not resolve, for direct connections \
+                      either. Add an encrypted or plain resolver by address (a DoH, DoT or UDP \
+                      server), or use the Iran preset"
+                .into(),
+        });
+    }
+    warnings
 }
 
 /// Build, check and apply the configuration for `inbounds` and `settings`.

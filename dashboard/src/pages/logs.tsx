@@ -1,12 +1,14 @@
 import { DownloadIcon, PauseIcon, PlayIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { FormError } from "@/components/form-error";
 import { PageHeader } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import type { LogLevel, LogRecord } from "@/lib/api";
+import { api, put, type LogLevel, type LogLevelView, type LogRecord } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /** How many lines the page keeps; older ones scroll away for good. */
@@ -33,6 +35,12 @@ type Connection = "connecting" | "live" | "lost";
 /** The panel's log, and the core's: what happened lately, then what happens. */
 export function LogsPage() {
   const { t } = useTranslation();
+  const client = useQueryClient();
+  const processLevel = useQuery({ queryKey: ["logs", "level"], queryFn: () => api<LogLevelView>("logs/level") });
+  const setProcessLevel = useMutation({
+    mutationFn: (level: string) => put<LogLevelView>("logs/level", { level }),
+    onSuccess: (view) => client.setQueryData(["logs", "level"], view),
+  });
   const [source, setSource] = useState<(typeof sources)[number]>("all");
   const [level, setLevel] = useState<string>("");
   const [search, setSearch] = useState("");
@@ -159,6 +167,28 @@ export function LogsPage() {
             <DownloadIcon />
           </Button>
         </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+        <label htmlFor="process-level" className="text-muted-foreground">
+          {t("logs.levelOfProcess")}
+        </label>
+        <Select
+          id="process-level"
+          className="w-52"
+          value={processLevel.data && (levels as string[]).includes(processLevel.data.level) ? processLevel.data.level : "custom"}
+          disabled={!processLevel.data || processLevel.data.fixed || setProcessLevel.isPending}
+          onChange={(e) => setProcessLevel.mutate(e.target.value)}
+        >
+          {processLevel.data && !(levels as string[]).includes(processLevel.data.level) && <option value="custom">{t("logs.levelCustom")}</option>}
+          {levels.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </Select>
+        <span className="text-xs text-muted-foreground">{processLevel.data?.fixed ? t("logs.levelFixed") : t("logs.levelHint")}</span>
+        <FormError error={setProcessLevel.error} />
       </div>
 
       <Card className="overflow-hidden">

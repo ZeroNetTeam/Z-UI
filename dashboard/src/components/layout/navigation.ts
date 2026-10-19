@@ -49,7 +49,7 @@ export const navigation: NavGroup[] = [
     label: "configuration",
     items: [
       { to: "/certificates", label: "certificates", icon: FileKey2Icon },
-      { to: "/core", label: "core", icon: CpuIcon, phase: 7 },
+      { to: "/core", label: "core", icon: CpuIcon },
       { to: "/logs", label: "logs", icon: ScrollTextIcon },
       { to: "/settings", label: "settings", icon: SettingsIcon },
     ],

@@ -345,3 +345,40 @@ export interface LogRecord {
   target: string;
   message: string;
 }
+
+export interface GeodataStatus {
+  geositeTags: number;
+  geoipTags: number;
+  files: { name: string; outcome: string; detail: string; entries: number; atUnixSeconds: number }[];
+}
+
+export interface CoreView {
+  settings: Record<string, unknown>;
+  defaults: Record<string, unknown>;
+  running: boolean;
+  inbounds: { tag: string; remark: string; enabled: boolean; protocol: string }[];
+  geodata: GeodataStatus | null;
+  asset_files: unknown;
+}
+
+export interface CoreWarning {
+  path: string;
+  message: string;
+}
+
+export interface IranOptions {
+  proxies: string[];
+  remote_dns: string;
+  local_dns: string;
+  anti_sanction_dns: string;
+  block_ads: boolean;
+  fragment: boolean;
+  manage_geodata: boolean;
+  clean_ip_candidates: string[];
+  clean_ip_host: string;
+}
+
+export interface LogLevelView {
+  level: string;
+  fixed: boolean;
+}

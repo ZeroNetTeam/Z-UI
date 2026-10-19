@@ -35,6 +35,8 @@ pub struct CoreView {
     /// How fresh the geosite and geoip lists are; none while the core is not
     /// running.
     geodata: Option<Value>,
+    /// The lists and mirrors geodata management starts from.
+    asset_files: Value,
 }
 
 pub async fn get(State(state): State<AppState>, _: CurrentAdmin) -> ApiResult<Json<CoreView>> {
@@ -56,6 +58,7 @@ pub async fn get(State(state): State<AppState>, _: CurrentAdmin) -> ApiResult<Js
         running: state.node().status().await.running,
         inbounds,
         geodata: state.node().assets().await,
+        asset_files: zero_config::presets::default_asset_files(),
     }))
 }
 
@@ -428,6 +431,11 @@ mod tests {
             before,
             "nothing was stored"
         );
+        assert!(
+            proposed.json()["warnings"].as_array().unwrap().is_empty(),
+            "the preset brings resolvers of its own: {}",
+            proposed.body
+        );
 
         // The proposal is applicable as it stands.
         let applied = put(&panel, &session, &settings_).await;
@@ -441,6 +449,53 @@ mod tests {
             )
             .await;
         assert_eq!(refused.json()["error"], "invalid_preset");
+    }
+
+    #[tokio::test]
+    async fn a_proxy_outbound_without_resolvers_is_warned_about() {
+        let (panel, session, _, _) = rig().await;
+        let check = |settings: Value| {
+            let (panel, session) = (&panel, &session);
+            async move {
+                let reply = panel
+                    .send(
+                        "POST",
+                        "/api/core/validate",
+                        Some(session),
+                        Some(json!({"settings": settings})),
+                    )
+                    .await;
+                assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+                reply.json()["warnings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|w| w["path"].as_str().unwrap().to_string())
+                    .collect::<Vec<_>>()
+            }
+        };
+        let base = settings(&panel, &session).await;
+        assert!(
+            check(base.clone()).await.is_empty(),
+            "a server that sends traffic out directly has nothing to warn of"
+        );
+
+        // Any outbound through another server makes the core refuse the system
+        // resolver, which is all the defaults ask.
+        let mut proxied = base.clone();
+        proxied["outbounds"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"tag": "p", "link": LINK}));
+        let paths = check(proxied.clone()).await;
+        assert_eq!(paths, ["dns.leakPolicy", "dns.servers"], "{paths:?}");
+
+        // With a resolver by address the names resolve; only the ignored
+        // setting is left to mention.
+        proxied["dns"]["servers"] = json!(["1.1.1.1"]);
+        assert_eq!(check(proxied.clone()).await, ["dns.leakPolicy"]);
+        proxied["dns"].as_object_mut().unwrap().remove("leakPolicy");
+        assert!(check(proxied).await.is_empty());
     }
 
     #[tokio::test]
