@@ -175,6 +175,16 @@ impl Node for LocalNode {
         self.stats.accounts.set_limit(email, uplink, downlink);
     }
 
+    async fn assets(&self) -> Option<serde_json::Value> {
+        let host = self.host.lock().await.clone()?;
+        Some(host.server().asset_snapshot())
+    }
+
+    async fn refresh_assets(&self) -> Option<serde_json::Value> {
+        let host = self.host.lock().await.clone()?;
+        Some(host.server().refresh_assets_now().await)
+    }
+
     async fn stop(&self) {
         if let Some(host) = self.host.lock().await.take() {
             host.stop(STOP_DRAIN).await;

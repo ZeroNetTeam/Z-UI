@@ -12,6 +12,7 @@
 //! those are resolved or removed here, so the core sees plain configuration.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use axum::http::StatusCode;
 use serde_json::{json, Map, Value};
@@ -67,46 +68,12 @@ fn parse(text: &str, what: &str, tag: &str) -> Result<Value, ApiError> {
 
 /// Whether this machine can reach the IPv6 internet: a UDP socket "connects"
 /// only when a route exists, and nothing is sent. Asked once.
-fn has_ipv6() -> bool {
+pub(crate) fn has_ipv6() -> bool {
     static IPV6: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *IPV6.get_or_init(|| {
         std::net::UdpSocket::bind("[::]:0")
             .and_then(|socket| socket.connect("[2001:4860:4860::8888]:53"))
             .is_ok()
-    })
-}
-
-/// The setting that lets clients reach the server's own and private
-/// networks (`true`), which the template otherwise blocks.
-pub const ALLOW_PRIVATE: &str = "core.allow_private";
-
-/// The everything-but-inbounds part of the configuration. Phase 7 makes it
-/// editable; for now a server that sends its clients out directly and never
-/// into the server's own network.
-fn template() -> Value {
-    json!({
-        "log": {"loglevel": "warning"},
-        // The machine's own resolver, as the core's installer sets a server
-        // up: the provider's DNS is the one always reachable from its
-        // network. Without a resolver no domain a client asks for resolves.
-        "dns": {
-            "servers": ["localhost"],
-            "leakPolicy": "fallback",
-            "queryStrategy": if has_ipv6() { "UseIP" } else { "UseIPv4" },
-        },
-        "outbounds": [
-            {"tag": "direct", "protocol": "freedom"},
-            {"tag": "blocked", "protocol": "blackhole"},
-        ],
-        "routing": {"rules": [{
-            "type": "field",
-            "ip": [
-                "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
-                "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16",
-                "::1/128", "fc00::/7", "fe80::/10",
-            ],
-            "outboundTag": "blocked",
-        }]},
     })
 }
 
@@ -180,14 +147,16 @@ fn core_inbound(
 }
 
 /// The whole configuration for `inbounds` (the enabled ones), with the
-/// accounts of `users` their `groups` give them.
+/// accounts of `users` their `groups` give them, and the rest from `settings`
+/// ([`crate::core_settings`]).
 pub fn build(
     inbounds: &[Inbound],
     certificates: &HashMap<i64, Certificate>,
     users: &[z_db::User],
     groups: &[z_db::AccessGroup],
+    settings: &Value,
+    data_dir: &Path,
 ) -> Result<Value, ApiError> {
-    let mut config = template();
     let built = inbounds
         .iter()
         .filter(|inbound| inbound.enabled)
@@ -196,8 +165,7 @@ pub fn build(
             core_inbound(inbound, certificates, clients)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    config["inbounds"] = Value::Array(built);
-    Ok(config)
+    Ok(crate::core_settings::assemble(settings, built, data_dir))
 }
 
 /// Refuse two enabled inbounds on one port (of the same kind), or one on
@@ -229,10 +197,24 @@ pub fn check_ports(inbounds: &[Inbound], panel_port: u16) -> Result<(), ApiError
     Ok(())
 }
 
-/// Build, check and apply the configuration for `inbounds`. The caller
-/// holds the core lock and writes its change only on success.
-pub async fn apply(state: &AppState, inbounds: &[Inbound]) -> Result<Applied, ApiError> {
+/// What the compiler noted about a configuration that it accepted anyway:
+/// a setting it reads and does not act on, a resolver it could not parse.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Warning {
+    pub path: String,
+    pub message: String,
+}
+
+/// The configuration for `inbounds` and `settings`, built and compiled by the
+/// core's own compiler, with what the compiler had to say about it.
+pub async fn compile(
+    state: &AppState,
+    inbounds: &[Inbound],
+    settings: &Value,
+) -> Result<(Value, Vec<Warning>), ApiError> {
     check_ports(inbounds, state.config().listen.port())?;
+    crate::core_settings::check(settings)
+        .map_err(|message| ApiError::bad_request("invalid_core", message))?;
     let certificates: HashMap<i64, Certificate> = state
         .db()
         .certificates()
@@ -242,13 +224,53 @@ pub async fn apply(state: &AppState, inbounds: &[Inbound]) -> Result<Applied, Ap
         .collect();
     let users = state.db().all_users().await?;
     let groups = state.db().access_groups().await?;
-    let mut config = build(inbounds, &certificates, &users, &groups)?;
-    if state.db().setting(ALLOW_PRIVATE).await?.as_deref() == Some("true") {
-        config["routing"]["rules"] = json!([]);
-    }
+    let config = build(
+        inbounds,
+        &certificates,
+        &users,
+        &groups,
+        settings,
+        &state.config().data_dir,
+    )?;
     // The core's own compiler is the judge of what it can run.
-    zero_config::compile_config(&config, zero_core::GenerationId(1))
-        .map_err(|error| ApiError::bad_request("invalid_inbound", error))?;
+    let (_, notes) = zero_config::compile_config(&config, zero_core::GenerationId(1))
+        .map_err(|error| ApiError::bad_request("invalid_core", error))?;
+    let warnings = notes
+        .diagnostics
+        .into_iter()
+        .map(|d| Warning {
+            path: d.path,
+            message: d.message,
+        })
+        .collect();
+    Ok((config, warnings))
+}
+
+/// Build, check and apply the configuration for `inbounds` and `settings`.
+/// The caller holds the core lock and writes its change only on success.
+pub async fn apply_with(
+    state: &AppState,
+    inbounds: &[Inbound],
+    settings: &Value,
+) -> Result<(Applied, Vec<Warning>), ApiError> {
+    let (config, warnings) = compile(state, inbounds, settings).await?;
+    let applied = state.node().apply(config).await.map_err(|error| {
+        ApiError::new(StatusCode::BAD_REQUEST, "core_refused", error.to_string())
+    })?;
+    Ok((applied, warnings))
+}
+
+/// [`apply_with`] the stored settings: what an inbound or user change does.
+pub async fn apply(state: &AppState, inbounds: &[Inbound]) -> Result<Applied, ApiError> {
+    let settings = crate::core_settings::load(state.db()).await;
+    let (config, _) = compile(state, inbounds, &settings).await.map_err(|error| {
+        // A change to an inbound is refused for what is wrong with the inbound.
+        if error.code == "invalid_core" {
+            ApiError::bad_request("invalid_inbound", error.message)
+        } else {
+            error
+        }
+    })?;
     state
         .node()
         .apply(config)
@@ -319,7 +341,15 @@ mod tests {
         );
         let mut off = inbound("off", 9000, "vmess", json!({}), json!({}));
         off.enabled = false;
-        let config = build(&[reality, tls, off], &certificates, &[], &[]).unwrap();
+        let config = build(
+            &[reality, tls, off],
+            &certificates,
+            &[],
+            &[],
+            &crate::core_settings::default_document(),
+            Path::new("data"),
+        )
+        .unwrap();
         let inbounds = config["inbounds"].as_array().unwrap();
         assert_eq!(inbounds.len(), 2, "a disabled inbound is left out");
         assert_eq!(
@@ -347,7 +377,15 @@ mod tests {
             json!({}),
             json!({"security": "tls", "tlsSettings": {"certificateId": 3}}),
         );
-        let error = build(&[tls], &HashMap::new(), &[], &[]).unwrap_err();
+        let error = build(
+            &[tls],
+            &HashMap::new(),
+            &[],
+            &[],
+            &crate::core_settings::default_document(),
+            Path::new("data"),
+        )
+        .unwrap_err();
         assert_eq!(error.code, "certificate_missing");
     }
 
@@ -388,7 +426,15 @@ mod tests {
                 "shortIds": [zero_runtime::keys::short_id(8).unwrap()],
             }}),
         );
-        let config = build(&[reality], &HashMap::new(), &[], &[]).unwrap();
+        let config = build(
+            &[reality],
+            &HashMap::new(),
+            &[],
+            &[],
+            &crate::core_settings::default_document(),
+            Path::new("data"),
+        )
+        .unwrap();
         zero_config::compile_config(&config, zero_core::GenerationId(1)).unwrap();
     }
 }

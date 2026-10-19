@@ -725,34 +725,12 @@ pub async fn bulk_create(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use axum::http::StatusCode;
     use serde_json::{json, Value};
     use tokio::net::TcpStream;
 
-    use crate::server::testing::{connect, echo_sink, ended, free_port, panel, Panel};
-
-    /// A zray client whose SOCKS5 port goes to `port` as `uuid` over VLESS.
-    async fn client(port: u16, uuid: &str) -> u16 {
-        let socks = free_port();
-        let config = json!({
-            "inbounds": [{"tag": "socks", "listen": "127.0.0.1", "port": socks, "protocol": "socks"}],
-            "outbounds": [{"tag": "out", "protocol": "vless", "settings": {"vnext": [{
-                "address": "127.0.0.1", "port": port, "users": [{"id": uuid, "encryption": "none"}],
-            }]}}],
-        });
-        let (generation, _) =
-            zero_config::compile_config(&config, zero_core::GenerationId(1)).unwrap();
-        let server = Arc::new(zero_runtime::Server::new(zero_runtime::ServerConfig {
-            config: generation.config,
-            generation: generation.id,
-        }));
-        let running = Arc::clone(&server);
-        tokio::spawn(async move { running.run().await });
-        server.wait_until_listening().await;
-        socks
-    }
+    use crate::server::testing::{client, connect, echo_sink, ended, free_port, panel, Panel};
 
     /// A panel with one plain VLESS inbound, and its port.
     async fn with_inbound() -> (Panel, String, u16) {
@@ -762,7 +740,14 @@ mod tests {
         panel
             .state
             .db()
-            .set_setting(crate::core_config::ALLOW_PRIVATE, "true")
+            .set_setting(
+                crate::core_settings::SETTING,
+                &serde_json::json!({
+                    "blockPrivate": false,
+                    "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+                })
+                .to_string(),
+            )
             .await
             .unwrap();
         let port = free_port();

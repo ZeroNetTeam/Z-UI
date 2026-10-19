@@ -117,6 +117,29 @@ impl Filter {
     }
 }
 
+/// The levels the dashboard can set the whole process to.
+pub const LEVELS: &[&str] = &["error", "warn", "info", "debug"];
+
+/// The filter directive for a level: that level everywhere, except in the
+/// libraries that say too much at debug (every SQL statement, every HTTP
+/// frame), which stay at warnings.
+pub fn directive(level: &str) -> String {
+    format!("{level},sqlx=warn,hyper=warn,hyper_util=warn,h2=warn,rustls=warn,tokio_util=warn")
+}
+
+/// Swaps the process's log filter for one made from a directive.
+type Reloader = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+
+/// How the process's log level is read and changed. The default does
+/// nothing but remember; `main` installs the real filter's reloader.
+struct LevelControl {
+    /// A level of [`LEVELS`], or the text of a custom `ZUI_LOG`.
+    current: Mutex<String>,
+    /// Whether `ZUI_LOG` set it, which the dashboard leaves alone.
+    from_env: std::sync::atomic::AtomicBool,
+    apply: Mutex<Option<Reloader>>,
+}
+
 /// The ring and the feed. Cheap to clone: it is shared.
 #[derive(Clone)]
 pub struct LogBuffer {
@@ -127,6 +150,7 @@ struct Inner {
     ring: Mutex<VecDeque<Arc<Record>>>,
     next: AtomicU64,
     feed: broadcast::Sender<Arc<Record>>,
+    level: LevelControl,
 }
 
 impl Default for LogBuffer {
@@ -136,6 +160,11 @@ impl Default for LogBuffer {
                 ring: Mutex::new(VecDeque::with_capacity(KEEP)),
                 next: AtomicU64::new(1),
                 feed: broadcast::channel(512).0,
+                level: LevelControl {
+                    current: Mutex::new("info".into()),
+                    from_env: std::sync::atomic::AtomicBool::new(false),
+                    apply: Mutex::new(None),
+                },
             }),
         }
     }
@@ -194,6 +223,54 @@ impl LogBuffer {
     ) -> (Vec<Arc<Record>>, broadcast::Receiver<Arc<Record>>) {
         let receiver = self.inner.feed.subscribe();
         (self.recent(filter, backlog), receiver)
+    }
+
+    /// Install the reloader of the process's log filter, which is now at
+    /// `current` (a level, or custom text when `from_env`).
+    pub fn install_level(
+        &self,
+        current: &str,
+        from_env: bool,
+        apply: impl Fn(&str) -> Result<(), String> + Send + Sync + 'static,
+    ) {
+        let level = &self.inner.level;
+        *level.current.lock().unwrap_or_else(|p| p.into_inner()) = current.to_string();
+        level.from_env.store(from_env, Ordering::Relaxed);
+        *level.apply.lock().unwrap_or_else(|p| p.into_inner()) = Some(Box::new(apply));
+    }
+
+    /// The process's log level, and whether `ZUI_LOG` fixes it.
+    pub fn level(&self) -> (String, bool) {
+        let level = &self.inner.level;
+        (
+            level
+                .current
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
+            level.from_env.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Change the process's log level to one of [`LEVELS`].
+    pub fn set_level(&self, name: &str) -> Result<(), String> {
+        if !LEVELS.contains(&name) {
+            return Err(format!("{name:?} is not a log level"));
+        }
+        let level = &self.inner.level;
+        if level.from_env.load(Ordering::Relaxed) {
+            return Err("the level is fixed by ZUI_LOG; unset it to change it here".into());
+        }
+        if let Some(apply) = level
+            .apply
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+        {
+            apply(&directive(name))?;
+        }
+        *level.current.lock().unwrap_or_else(|p| p.into_inner()) = name.to_string();
+        Ok(())
     }
 
     pub fn layer(&self) -> LogLayer {
@@ -336,6 +413,32 @@ mod tests {
         buffer.push(0, "info", "z_ui", "é".repeat(5000));
         let last = buffer.recent(&Filter::default(), 1);
         assert!(last[0].message.len() <= MAX_MESSAGE + 4 && last[0].message.ends_with('…'));
+    }
+
+    #[test]
+    fn the_level_is_changed_through_the_installed_reloader() {
+        let buffer = LogBuffer::default();
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = Arc::clone(&seen);
+        buffer.install_level("info", false, move |directive| {
+            sink.lock().unwrap().push(directive.to_string());
+            Ok(())
+        });
+        assert_eq!(buffer.level(), ("info".to_string(), false));
+        buffer.set_level("debug").unwrap();
+        assert_eq!(buffer.level().0, "debug");
+        let directive = seen.lock().unwrap()[0].clone();
+        assert!(
+            directive.starts_with("debug,") && directive.contains("sqlx=warn"),
+            "{directive}"
+        );
+        assert!(buffer.set_level("loud").is_err());
+        assert_eq!(buffer.level().0, "debug", "a refused level changes nothing");
+
+        let fixed = LogBuffer::default();
+        fixed.install_level("zero_runtime=trace", true, |_| Ok(()));
+        assert!(fixed.set_level("warn").unwrap_err().contains("ZUI_LOG"));
+        assert_eq!(fixed.level(), ("zero_runtime=trace".to_string(), true));
     }
 
     #[tokio::test]

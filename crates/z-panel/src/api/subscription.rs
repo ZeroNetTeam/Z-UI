@@ -202,7 +202,14 @@ mod tests {
         panel
             .state
             .db()
-            .set_setting(crate::core_config::ALLOW_PRIVATE, "true")
+            .set_setting(
+                crate::core_settings::SETTING,
+                &serde_json::json!({
+                    "blockPrivate": false,
+                    "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+                })
+                .to_string(),
+            )
             .await
             .unwrap();
         for (remark, protocol, settings) in [

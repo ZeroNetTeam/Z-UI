@@ -16,6 +16,7 @@ z-db = { workspace = true }
 z-node = { workspace = true }
 zero-config = { workspace = true }
 zero-core = { workspace = true }
+zero-discovery = { workspace = true }
 zero-runtime = { workspace = true }
 x509-parser = "0.18"
 webpki-roots = "1"

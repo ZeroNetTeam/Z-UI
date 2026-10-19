@@ -20,6 +20,7 @@ z-node = { path = "crates/z-node" }
 zero-runtime = { path = "resources/zray-core/crates/zero-runtime" }
 zero-config = { path = "resources/zray-core/crates/zero-config" }
 zero-core = { path = "resources/zray-core/crates/zero-core" }
+zero-discovery = { path = "resources/zray-core/crates/zero-discovery" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "time", "sync", "signal", "fs"] }
 serde = { version = "1", features = ["derive"] }

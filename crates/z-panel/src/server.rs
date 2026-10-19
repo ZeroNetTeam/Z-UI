@@ -288,6 +288,27 @@ pub mod testing {
         )
     }
 
+    /// A zray client whose SOCKS5 port goes to `port` as `uuid` over VLESS.
+    pub async fn client(port: u16, uuid: &str) -> u16 {
+        let socks = free_port();
+        let config = serde_json::json!({
+            "inbounds": [{"tag": "socks", "listen": "127.0.0.1", "port": socks, "protocol": "socks"}],
+            "outbounds": [{"tag": "out", "protocol": "vless", "settings": {"vnext": [{
+                "address": "127.0.0.1", "port": port, "users": [{"id": uuid, "encryption": "none"}],
+            }]}}],
+        });
+        let (generation, _) =
+            zero_config::compile_config(&config, zero_core::GenerationId(1)).unwrap();
+        let server = std::sync::Arc::new(zero_runtime::Server::new(zero_runtime::ServerConfig {
+            config: generation.config,
+            generation: generation.id,
+        }));
+        let running = std::sync::Arc::clone(&server);
+        tokio::spawn(async move { running.run().await });
+        server.wait_until_listening().await;
+        socks
+    }
+
     pub async fn panel(base: &str) -> Panel {
         use std::hash::{BuildHasher, Hasher};
         let unique = std::collections::hash_map::RandomState::new()

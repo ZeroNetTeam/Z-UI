@@ -6,6 +6,7 @@ mod assets;
 mod auth;
 mod config;
 mod core_config;
+mod core_settings;
 mod error;
 mod jobs;
 mod monitor;
@@ -25,15 +26,36 @@ use crate::config::{AdminCommand, Command, PanelConfig};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // The same lines go to the terminal and to the dashboard's live log.
+    // The filter can be swapped while the process runs (the Logs page does).
     let logs = monitor::LogBuffer::default();
     {
         use tracing_subscriber::layer::SubscriberExt;
         use tracing_subscriber::util::SubscriberInitExt;
+        let from_env = std::env::var("ZUI_LOG")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let filter = match &from_env {
+            Some(text) => tracing_subscriber::EnvFilter::try_new(text).unwrap_or_else(|_| {
+                monitor::logs::directive("info")
+                    .parse()
+                    .expect("a valid directive")
+            }),
+            None => monitor::logs::directive("info")
+                .parse()
+                .expect("a valid directive"),
+        };
+        let (filter, reload) = tracing_subscriber::reload::Layer::new(filter);
+        logs.install_level(
+            from_env.as_deref().unwrap_or("info"),
+            from_env.is_some(),
+            move |directive| {
+                let filter =
+                    tracing_subscriber::EnvFilter::try_new(directive).map_err(|e| e.to_string())?;
+                reload.reload(filter).map_err(|e| e.to_string())
+            },
+        );
         tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::EnvFilter::try_from_env("ZUI_LOG")
-                    .unwrap_or_else(|_| "info".into()),
-            )
+            .with(filter)
             .with(tracing_subscriber::fmt::layer())
             .with(logs.layer())
             .init();
@@ -67,6 +89,10 @@ async fn main() -> anyhow::Result<()> {
     );
     state.monitor().spawn();
     state.set_subscription(subscription::load(&db).await);
+    // The level the admin chose last time, unless ZUI_LOG says otherwise.
+    if let Ok(Some(level)) = db.setting(api::LOG_LEVEL_SETTING).await {
+        let _ = state.monitor().logs.set_level(&level);
+    }
     let scheme = if tls.is_some() { "https" } else { "http" };
     let address = format!("{scheme}://{}{}", config.listen, config.under_base("/"));
     if db.admin_count().await? == 0 {

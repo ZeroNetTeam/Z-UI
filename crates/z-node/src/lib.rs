@@ -48,6 +48,15 @@ pub trait Node: Send + Sync {
     /// Hold an account to these bytes per second (0 = no limit).
     async fn set_limit(&self, email: &str, uplink: u64, downlink: u64);
 
+    /// How fresh the geosite and geoip lists are: each file's outcome and
+    /// age, and how many tags are loaded. `None` while the core is not
+    /// running.
+    async fn assets(&self) -> Option<serde_json::Value>;
+
+    /// Download the lists now rather than at their next turn, and say what
+    /// came of it. `None` while the core is not running.
+    async fn refresh_assets(&self) -> Option<serde_json::Value>;
+
     /// Stop serving, waiting briefly for open sessions.
     async fn stop(&self);
 }

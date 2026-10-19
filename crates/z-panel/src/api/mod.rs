@@ -3,6 +3,7 @@
 
 mod auth;
 mod certificates;
+mod core;
 mod groups;
 mod hosts;
 mod inbounds;
@@ -21,6 +22,9 @@ use z_common::node::NodeStatus;
 
 use crate::auth::CurrentAdmin;
 use crate::server::AppState;
+
+/// The setting the admin's choice of log level is kept under.
+pub const LOG_LEVEL_SETTING: &str = "log.level";
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -61,9 +65,17 @@ pub fn router() -> Router<AppState> {
         .route("/keys/vless-encryption", get(keys::vless_encryption))
         .route("/tools/reality-check", get(tools::reality_check))
         .route("/tools/qr", get(tools::qr))
+        .route("/core", get(core::get).put(core::save))
+        .route("/core/validate", post(core::validate))
+        .route("/core/presets/iran", post(core::iran_preset))
+        .route("/core/check-link", post(core::check_link))
+        .route("/core/warp", post(core::create_warp))
+        .route("/core/geodata", get(core::geodata))
+        .route("/core/geodata/refresh", post(core::refresh_geodata))
         .route("/monitor/system", get(monitor::system))
         .route("/monitor/traffic", get(monitor::traffic))
         .route("/logs", get(monitor::logs))
+        .route("/logs/level", get(monitor::level).put(monitor::set_level))
         .route("/logs/stream", get(monitor::stream))
         .route("/users", get(users::list).post(users::create))
         .route("/users/counts", get(users::counts))

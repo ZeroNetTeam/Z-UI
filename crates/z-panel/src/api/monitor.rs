@@ -147,6 +147,44 @@ pub async fn logs(
     )
 }
 
+#[derive(Serialize)]
+pub struct LevelView {
+    /// `error`, `warn`, `info` or `debug`, or the text of a custom `ZUI_LOG`.
+    level: String,
+    /// `ZUI_LOG` fixes it: the dashboard cannot change it.
+    fixed: bool,
+}
+
+pub async fn level(State(state): State<AppState>, _: CurrentAdmin) -> Json<LevelView> {
+    let (level, fixed) = state.monitor().logs.level();
+    Json(LevelView { level, fixed })
+}
+
+#[derive(Deserialize)]
+pub struct LevelInput {
+    level: String,
+}
+
+/// Change how much the panel and the core log, from now on and after a
+/// restart.
+pub async fn set_level(
+    State(state): State<AppState>,
+    _: CurrentAdmin,
+    Json(input): Json<LevelInput>,
+) -> ApiResult<Json<LevelView>> {
+    state
+        .monitor()
+        .logs
+        .set_level(&input.level)
+        .map_err(|message| crate::error::ApiError::bad_request("invalid_log_level", message))?;
+    state
+        .db()
+        .set_setting(super::LOG_LEVEL_SETTING, &input.level)
+        .await?;
+    let (level, fixed) = state.monitor().logs.level();
+    Ok(Json(LevelView { level, fixed }))
+}
+
 fn event(record: &Record) -> Option<Event> {
     Event::default()
         .id(record.id.to_string())
