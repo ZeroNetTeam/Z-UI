@@ -193,6 +193,15 @@ fn ids_text(ids: &[i64]) -> String {
         .join(",")
 }
 
+/// One user's bytes over a stretch of time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserUsage {
+    pub user_id: i64,
+    pub username: String,
+    pub uplink: i64,
+    pub downlink: i64,
+}
+
 /// A device a user fetched its subscription on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
@@ -610,6 +619,72 @@ impl Database {
             })
             .collect::<Result<_, sqlx::Error>>()
             .map_err(DbError::from)
+    }
+
+    /// Every user's bytes added up, hour by hour, since `since`.
+    pub async fn total_usage(&self, since: i64) -> Result<Vec<UsagePoint>, DbError> {
+        // A sum of bigints is a numeric in Postgres, which the Any driver
+        // cannot read as an integer.
+        let rows = sqlx::query(concat!(
+            "SELECT hour, CAST(SUM(uplink) AS BIGINT) AS uplink, CAST(SUM(downlink) AS BIGINT) AS downlink ",
+            "FROM user_usage WHERE hour >= $1 GROUP BY hour ORDER BY hour"
+        ))
+        .bind(since)
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(UsagePoint {
+                    hour: row.try_get("hour")?,
+                    uplink: row.try_get("uplink")?,
+                    downlink: row.try_get("downlink")?,
+                })
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(DbError::from)
+    }
+
+    /// The users who moved the most since `since`, biggest first.
+    pub async fn top_usage(&self, since: i64, limit: i64) -> Result<Vec<UserUsage>, DbError> {
+        let rows = sqlx::query(concat!(
+            "SELECT u.id AS id, u.username AS username, ",
+            "CAST(SUM(w.uplink) AS BIGINT) AS uplink, CAST(SUM(w.downlink) AS BIGINT) AS downlink ",
+            "FROM user_usage w JOIN users u ON u.id = w.user_id WHERE w.hour >= $1 ",
+            "GROUP BY u.id, u.username ORDER BY SUM(w.uplink) + SUM(w.downlink) DESC LIMIT $2"
+        ))
+        .bind(since)
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(UserUsage {
+                    user_id: row.try_get("id")?,
+                    username: row.try_get("username")?,
+                    uplink: row.try_get("uplink")?,
+                    downlink: row.try_get("downlink")?,
+                })
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(DbError::from)
+    }
+
+    /// Everything every user has ever moved.
+    pub async fn lifetime_total(&self) -> Result<i64, DbError> {
+        let row = sqlx::query("SELECT CAST(COALESCE(SUM(lifetime_traffic), 0) AS BIGINT) AS total FROM users")
+            .fetch_one(self.pool())
+            .await?;
+        Ok(row.try_get("total")?)
+    }
+
+    /// Forget hourly usage from before `before`; returns how many rows went.
+    /// Users' lifetime totals are kept in the users themselves.
+    pub async fn prune_usage(&self, before: i64) -> Result<u64, DbError> {
+        Ok(sqlx::query("DELETE FROM user_usage WHERE hour < $1")
+            .bind(before)
+            .execute(self.pool())
+            .await?
+            .rows_affected())
     }
 
     /// How many users there are in each status.

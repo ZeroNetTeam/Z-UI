@@ -25,6 +25,11 @@ use crate::server::AppState;
 
 /// How often a pass runs.
 pub const INTERVAL: Duration = Duration::from_secs(10);
+/// How long hourly usage is kept: a bit over a year, which is as far back as
+/// the charts go. Users' lifetime totals are kept in the users.
+pub const USAGE_RETENTION: i64 = 400 * 86_400;
+/// How often old usage is looked for.
+const PRUNE_EVERY: Duration = Duration::from_secs(6 * 3600);
 /// How long an address that stopped connecting still holds a place in its
 /// user's IP limit.
 const ADDRESS_GRACE: Duration = Duration::from_secs(120);
@@ -130,10 +135,19 @@ pub fn spawn(state: AppState) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut last_prune: Option<Instant> = None;
         loop {
             ticker.tick().await;
             if let Err(error) = enforce_once(&state).await {
                 tracing::warn!(error = %error.message, "the enforcement pass failed");
+            }
+            if last_prune.is_none_or(|at| at.elapsed() >= PRUNE_EVERY) {
+                last_prune = Some(Instant::now());
+                match state.db().prune_usage(z_db::now() - USAGE_RETENTION).await {
+                    Ok(0) => {}
+                    Ok(rows) => tracing::info!(rows, "old hourly usage was forgotten"),
+                    Err(error) => tracing::warn!(%error, "old usage could not be pruned"),
+                }
             }
         }
     });

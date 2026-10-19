@@ -41,6 +41,8 @@ struct Inner {
     address_book: Mutex<crate::jobs::AddressBook>,
     /// The subscription options, read on every fetch ([`crate::subscription`]).
     subscription: std::sync::RwLock<crate::subscription::Settings>,
+    /// The host's figures and the live log ([`crate::monitor`]).
+    monitor: Arc<crate::monitor::Monitor>,
 }
 
 impl AppState {
@@ -50,6 +52,7 @@ impl AppState {
         node: Arc<dyn Node>,
         session_keys: SessionKeys,
         tls: bool,
+        monitor: Arc<crate::monitor::Monitor>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -64,6 +67,7 @@ impl AppState {
                 core_lock: tokio::sync::Mutex::new(()),
                 address_book: Mutex::new(Default::default()),
                 subscription: std::sync::RwLock::new(Default::default()),
+                monitor,
             }),
         }
     }
@@ -101,6 +105,10 @@ impl AppState {
             .address_book
             .lock()
             .unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn monitor(&self) -> &Arc<crate::monitor::Monitor> {
+        &self.inner.monitor
     }
 
     pub fn subscription(&self) -> crate::subscription::Settings {
@@ -303,6 +311,7 @@ pub mod testing {
             Arc::new(z_node::LocalNode::new()),
             SessionKeys::new(b"test-session-key-test-session-key"),
             false,
+            crate::monitor::Monitor::new(Default::default(), dir.clone()),
         );
         *state.setup_token() = Some("setup-token".into());
         Panel {

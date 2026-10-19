@@ -8,6 +8,7 @@ mod config;
 mod core_config;
 mod error;
 mod jobs;
+mod monitor;
 mod server;
 mod subscription;
 mod tls;
@@ -23,12 +24,20 @@ use crate::config::{AdminCommand, Command, PanelConfig};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("ZUI_LOG")
-                .unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    // The same lines go to the terminal and to the dashboard's live log.
+    let logs = monitor::LogBuffer::default();
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::try_from_env("ZUI_LOG")
+                    .unwrap_or_else(|_| "info".into()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .with(logs.layer())
+            .init();
+    }
     let config = PanelConfig::parse().resolved()?;
     std::fs::create_dir_all(&config.data_dir)
         .with_context(|| format!("creating {}", config.data_dir.display()))?;
@@ -54,7 +63,9 @@ async fn main() -> anyhow::Result<()> {
         node.clone(),
         session_keys,
         tls.is_some(),
+        monitor::Monitor::new(logs, config.data_dir.clone()),
     );
+    state.monitor().spawn();
     state.set_subscription(subscription::load(&db).await);
     let scheme = if tls.is_some() { "https" } else { "http" };
     let address = format!("{scheme}://{}{}", config.listen, config.under_base("/"));

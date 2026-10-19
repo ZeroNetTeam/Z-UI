@@ -7,6 +7,7 @@ mod groups;
 mod hosts;
 mod inbounds;
 mod keys;
+mod monitor;
 mod subscription;
 mod tools;
 mod users;
@@ -60,6 +61,10 @@ pub fn router() -> Router<AppState> {
         .route("/keys/vless-encryption", get(keys::vless_encryption))
         .route("/tools/reality-check", get(tools::reality_check))
         .route("/tools/qr", get(tools::qr))
+        .route("/monitor/system", get(monitor::system))
+        .route("/monitor/traffic", get(monitor::traffic))
+        .route("/logs", get(monitor::logs))
+        .route("/logs/stream", get(monitor::stream))
         .route("/users", get(users::list).post(users::create))
         .route("/users/counts", get(users::counts))
         .route("/users/bulk", post(users::bulk))

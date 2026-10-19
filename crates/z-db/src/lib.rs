@@ -16,7 +16,7 @@ pub use certificates::Certificate;
 pub use inbounds::{Host, HostFields, Inbound, InboundFields};
 pub use users::{
     AccessGroup, Device, DeviceFields, NextPlan, TrafficDelta, UsagePoint, User, UserFields,
-    UserQuery, UserTemplate,
+    UserQuery, UserTemplate, UserUsage,
 };
 
 use sqlx::any::{AnyPoolOptions, AnyRow};
@@ -296,6 +296,33 @@ mod tests {
         db.reset_user_traffic(alice.id).await.unwrap();
         let alice = db.user(alice.id).await.unwrap().unwrap();
         assert_eq!((alice.used_traffic, alice.lifetime_traffic), (0, 703));
+
+        // Across users: bob moves more than alice, and an old hour is pruned.
+        db.add_traffic(&[crate::TrafficDelta {
+            user_id: bob.id,
+            uplink: 1000,
+            downlink: 2000,
+        }])
+        .await
+        .unwrap();
+        let total = db.total_usage(0).await.unwrap();
+        assert_eq!(total.len(), 1, "both users moved in this hour");
+        assert_eq!((total[0].uplink, total[0].downlink), (1301, 2402));
+        let top = db.top_usage(0, 5).await.unwrap();
+        assert_eq!(
+            top.iter().map(|u| (u.username.as_str(), u.uplink + u.downlink)).collect::<Vec<_>>(),
+            [("bob", 3000), ("alice", 703)]
+        );
+        assert_eq!(db.top_usage(0, 1).await.unwrap().len(), 1);
+        assert_eq!(db.lifetime_total().await.unwrap(), 703 + 3000);
+        assert_eq!(db.prune_usage(0).await.unwrap(), 0);
+        assert_eq!(db.prune_usage(i64::MAX).await.unwrap(), 2);
+        assert!(db.total_usage(0).await.unwrap().is_empty());
+        assert_eq!(
+            db.lifetime_total().await.unwrap(),
+            3703,
+            "lifetime totals outlive the hourly rows"
+        );
         assert_eq!(
             db.user_by_token("token-a").await.unwrap().unwrap().id,
             alice.id

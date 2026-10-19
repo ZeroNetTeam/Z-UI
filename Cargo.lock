@@ -3244,6 +3244,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -3770,6 +3771,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jsonwebtoken",
+ "libc",
  "mime_guess",
  "percent-encoding",
  "qrcode",
@@ -3783,6 +3785,7 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "tokio-rustls",
+ "tokio-stream",
  "tower",
  "tower-http",
  "tracing",
