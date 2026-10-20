@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, del, put, type Certificate, type Inbound } from "@/lib/api";
 import { summary } from "@/lib/inbound-form";
+import { useOpenFromLink } from "@/lib/open-from-link";
 
 export function useCertificates() {
   return useQuery({ queryKey: ["certificates"], queryFn: () => api<Certificate[]>("certificates") });
@@ -27,6 +28,7 @@ export function InboundsPage() {
   const [editing, setEditing] = useState<Inbound | undefined>();
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  useOpenFromLink("inbound", () => setOpen(true));
 
   useEffect(() => {
     if (!notice) return;

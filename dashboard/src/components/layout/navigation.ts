@@ -1,5 +1,6 @@
 import {
   BoxesIcon,
+  BracesIcon,
   CpuIcon,
   FileKey2Icon,
   LayoutDashboardIcon,
@@ -51,6 +52,8 @@ export const navigation: NavGroup[] = [
       { to: "/certificates", label: "certificates", icon: FileKey2Icon },
       { to: "/core", label: "core", icon: CpuIcon },
       { to: "/logs", label: "logs", icon: ScrollTextIcon },
+      // Not `/api`: that is where the panel's own API lives.
+      { to: "/developer", label: "api", icon: BracesIcon, phase: 8 },
       { to: "/settings", label: "settings", icon: SettingsIcon },
     ],
   },

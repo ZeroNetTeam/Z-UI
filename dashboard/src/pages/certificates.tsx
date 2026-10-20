@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TextareaField } from "@/components/ui/textarea";
 import { del, post, type Certificate } from "@/lib/api";
+import { useOpenFromLink } from "@/lib/open-from-link";
 import { useCertificates } from "./inbounds";
 
 function FilePicker({ onText }: { onText: (text: string) => void }) {
@@ -101,6 +102,7 @@ export function CertificatesPage() {
   const client = useQueryClient();
   const certificates = useCertificates();
   const [open, setOpen] = useState(false);
+  useOpenFromLink("certificate", () => setOpen(true));
   const now = Date.now() / 1000;
   const date = (seconds: number) =>
     new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium" }).format(new Date(seconds * 1000));

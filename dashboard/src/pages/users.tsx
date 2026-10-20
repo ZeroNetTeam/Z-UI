@@ -52,6 +52,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, del, post, type BulkAction, type User, type UserCounts, type UserPage, type UserSubscription } from "@/lib/api";
 import { GB, statuses } from "@/lib/users";
+import { useOpenFromLink } from "@/lib/open-from-link";
 import { cn } from "@/lib/utils";
 
 const PAGE = 25;
@@ -124,6 +125,7 @@ export function UsersPage() {
     setEditing(user);
     setDialog(true);
   };
+  useOpenFromLink("user", () => open());
 
   return (
     <>

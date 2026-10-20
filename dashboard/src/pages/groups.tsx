@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SwitchField } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { del, post, put, type AccessGroup } from "@/lib/api";
+import { useOpenFromLink } from "@/lib/open-from-link";
 
 function GroupDialog({ open, onOpenChange, group }: { open: boolean; onOpenChange: (open: boolean) => void; group?: AccessGroup }) {
   const { t } = useTranslation();
@@ -73,6 +74,7 @@ export function GroupsPage() {
   const inbounds = useInbounds();
   const [editing, setEditing] = useState<AccessGroup | undefined>();
   const [open, setOpen] = useState(false);
+  useOpenFromLink("group", () => setOpen(true));
   const remark = (id: number) => inbounds.data?.find((inbound) => inbound.id === id)?.remark ?? `#${id}`;
   const number = (value: number) => new Intl.NumberFormat(i18n.language).format(value);
 

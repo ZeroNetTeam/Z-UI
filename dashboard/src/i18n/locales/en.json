@@ -18,7 +18,8 @@
     "settings": "Settings",
     "soon": "Soon",
     "certificates": "Certificates",
-    "logs": "Logs"
+    "logs": "Logs",
+    "api": "API"
   },
   "header": {
     "menu": "Menu",
@@ -747,5 +748,28 @@
     "dnsForcedStrict": "An outbound sends traffic through another server; then the core never uses the server's own resolver, whatever the system-resolver setting says.",
     "dnsNoResolver": "You now have only the system resolver, so no name resolves, for direct connections either. Add a resolver by address (DoH, DoT or UDP) or use the Iran preset.",
     "dnsSystemUnused": "not used"
+  },
+  "quick": {
+    "title": "Quick actions",
+    "subtitle": "Shortcuts to what you make; the page opens its own create dialog.",
+    "group_users": "Users",
+    "group_server": "Server",
+    "group_management": "Management",
+    "user": "New user",
+    "userHint": "One user or many at once, with data, expiry and groups",
+    "group": "New group",
+    "groupHint": "A list of inbounds that its users get",
+    "template": "New template",
+    "templateHint": "Ready-made limits for making users quickly",
+    "inbound": "New inbound",
+    "inboundHint": "VLESS, Trojan, Hysteria2, WireGuard and the rest",
+    "host": "New host",
+    "hostHint": "Another address users see for reaching an inbound",
+    "outbound": "New outbound",
+    "outboundHint": "A share link, WARP, Tor or a proxy chain",
+    "certificate": "New certificate",
+    "certificateHint": "Upload a certificate and key for TLS inbounds",
+    "admin": "New admin",
+    "adminHint": "An admin with a role and its own access"
   }
 }

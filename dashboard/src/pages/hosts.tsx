@@ -16,6 +16,7 @@ import { SwitchField } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, del, post, put, type Host, type Inbound } from "@/lib/api";
 import { fingerprints } from "@/lib/inbound-form";
+import { useOpenFromLink } from "@/lib/open-from-link";
 
 type HostForm = Omit<Host, "id">;
 
@@ -144,6 +145,7 @@ export function HostsPage() {
   const inbounds = useQuery({ queryKey: ["inbounds"], queryFn: () => api<Inbound[]>("inbounds") });
   const [editing, setEditing] = useState<Host | undefined>();
   const [open, setOpen] = useState(false);
+  useOpenFromLink("host", () => setOpen(true));
   const byId = new Map((inbounds.data ?? []).map((inbound) => [inbound.id, inbound]));
   const noInbound = inbounds.data?.length === 0;
 

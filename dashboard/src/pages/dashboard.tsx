@@ -16,6 +16,7 @@ import { Meter } from "@/components/charts/meter";
 import { Sparkline } from "@/components/charts/sparkline";
 import { StackedColumns } from "@/components/charts/stacked-columns";
 import { PageHeader } from "@/components/layout/layout";
+import { QuickActions } from "@/components/quick-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -384,7 +385,7 @@ export function DashboardPage() {
   const data = health.data;
   return (
     <>
-      <PageHeader title={t("dashboard.title")} subtitle={t("dashboard.subtitle")} />
+      <PageHeader title={t("dashboard.title")} subtitle={t("dashboard.subtitle")} action={<QuickActions />} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Tile
           icon={UsersIcon}

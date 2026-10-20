@@ -16,6 +16,7 @@ import { SelectField } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SwitchField } from "@/components/ui/switch";
 import { del, post, put, type ResetStrategy, type UserTemplate } from "@/lib/api";
+import { useOpenFromLink } from "@/lib/open-from-link";
 import { bytesToGb, bytesToMbit, gbToBytes, mbitToBytes, resetStrategies } from "@/lib/users";
 import { formatBytes } from "@/lib/utils";
 
@@ -161,6 +162,7 @@ export function TemplatesPage() {
   const groups = useGroups();
   const [editing, setEditing] = useState<UserTemplate | undefined>();
   const [open, setOpen] = useState(false);
+  useOpenFromLink("template", () => setOpen(true));
   const groupName = (id: number) => groups.data?.find((group) => group.id === id)?.name ?? `#${id}`;
   const speed = (bytes: number) => (bytes ? `${new Intl.NumberFormat(i18n.language).format(Number(bytesToMbit(bytes)))} Mbit/s` : "∞");
 

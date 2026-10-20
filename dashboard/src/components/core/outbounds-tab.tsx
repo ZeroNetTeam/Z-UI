@@ -13,6 +13,7 @@ import { SwitchField } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TextareaField } from "@/components/ui/textarea";
 import { post } from "@/lib/api";
+import { useOpenFromLink } from "@/lib/open-from-link";
 import {
   canFragment,
   domainStrategies,
@@ -202,6 +203,7 @@ export function OutboundsTab({ settings, change }: TabProps) {
   const outbounds = (Array.isArray(settings.outbounds) ? settings.outbounds : []) as Json[];
   const [editing, setEditing] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
+  useOpenFromLink("outbound", () => setOpen(true));
 
   return (
     <Card>
