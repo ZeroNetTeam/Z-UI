@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::audit::Audit;
 use crate::auth::permissions::{Permissions, Section};
 use crate::auth::Access;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct RoleView {
     id: i64,
     name: String,
@@ -24,21 +24,21 @@ pub struct RoleView {
     created_at: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct CatalogEntry {
     section: &'static str,
     /// Whether there is anything to change there, not only to look at.
     writable: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct RoleList {
     /// Every section a permission can be given for.
     catalog: Vec<CatalogEntry>,
     roles: Vec<RoleView>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct RoleInput {
     name: String,
     #[serde(default)]
@@ -58,6 +58,14 @@ async fn view(state: &AppState, role: z_db::Role) -> ApiResult<RoleView> {
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/roles",
+    operation_id = "roles_list",
+    tag = "admins",
+    summary = "List roles and the permissions that exist",
+    responses((status = 200, description = "The roles and the catalog", body = RoleList), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(State(state): State<AppState>, access: Access) -> ApiResult<Json<RoleList>> {
     access.require_sudo()?;
     let mut roles = Vec::new();
@@ -94,6 +102,15 @@ fn name_taken(name: &str) -> ApiError {
     ApiError::conflict("name_taken", format!("there is already a role {name:?}"))
 }
 
+#[utoipa::path(
+    post,
+    path = "/roles",
+    operation_id = "roles_create",
+    tag = "admins",
+    summary = "Make a role",
+    request_body = RoleInput,
+    responses((status = 201, description = "Made", body = RoleView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create(
     State(state): State<AppState>,
     access: Access,
@@ -110,6 +127,16 @@ pub async fn create(
     Ok((StatusCode::CREATED, audit, Json(view(&state, role).await?)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/roles/{id}",
+    operation_id = "roles_update",
+    tag = "admins",
+    summary = "Change a role",
+    params(("id" = i64, Path, description = "the role's id")),
+    request_body = RoleInput,
+    responses((status = 200, description = "Changed", body = RoleView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn update(
     State(state): State<AppState>,
     access: Access,
@@ -128,6 +155,15 @@ pub async fn update(
     Ok((audit, Json(view(&state, role).await?)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/roles/{id}",
+    operation_id = "roles_delete",
+    tag = "admins",
+    summary = "Delete a role no admin has",
+    params(("id" = i64, Path, description = "the role's id")),
+    responses((status = 204, description = "Deleted"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete(
     State(state): State<AppState>,
     access: Access,

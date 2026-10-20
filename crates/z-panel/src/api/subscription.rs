@@ -8,14 +8,31 @@ use serde::Serialize;
 
 use crate::audit::Audit;
 use crate::auth::Access;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 use crate::subscription::{self, Settings};
 
+#[utoipa::path(
+    get,
+    path = "/settings/subscription",
+    operation_id = "subscription_settings",
+    tag = "settings",
+    summary = "Read the subscription settings",
+    responses((status = 200, description = "The settings", body = Settings), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn settings(State(state): State<AppState>, _: Access) -> Json<Settings> {
     Json(state.subscription())
 }
 
+#[utoipa::path(
+    put,
+    path = "/settings/subscription",
+    operation_id = "subscription_save_settings",
+    tag = "settings",
+    summary = "Change the subscription settings",
+    request_body = Settings,
+    responses((status = 200, description = "Saved", body = Settings), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn save_settings(
     State(state): State<AppState>,
     _: Access,
@@ -30,13 +47,13 @@ pub async fn save_settings(
     Ok((Audit::new("settings.subscription", ""), Json(settings)))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Link {
     remark: String,
     link: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct UserSubscription {
     url: String,
     /// A QR code of `url`, as SVG.
@@ -60,6 +77,15 @@ fn origin(state: &AppState, headers: &HeaderMap) -> (String, String) {
 
 /// A user's subscription address and the links in it, as its app would get
 /// them now.
+#[utoipa::path(
+    get,
+    path = "/users/{id}/subscription",
+    operation_id = "subscription_user_subscription",
+    tag = "users",
+    summary = "A user's subscription address and links",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 200, description = "The address, a QR code and the links", body = UserSubscription), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn user_subscription(
     State(state): State<AppState>,
     access: Access,
@@ -89,7 +115,7 @@ pub async fn user_subscription(
     }))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct DeviceView {
     id: i64,
     hwid: String,
@@ -101,6 +127,15 @@ pub struct DeviceView {
     last_seen: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/users/{id}/devices",
+    operation_id = "subscription_devices",
+    tag = "users",
+    summary = "Devices a user fetched its subscription on",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 200, description = "The devices", body = Vec<DeviceView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn devices(
     State(state): State<AppState>,
     access: Access,
@@ -128,6 +163,15 @@ pub async fn devices(
 }
 
 /// Forget one device, which frees its place under the user's limit.
+#[utoipa::path(
+    delete,
+    path = "/users/{id}/devices/{device}",
+    operation_id = "subscription_delete_device",
+    tag = "users",
+    summary = "Forget one device",
+    params(("id" = i64, Path, description = "the user's id"), ("device" = i64, Path, description = "the device's id")),
+    responses((status = 204, description = "Forgotten"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete_device(
     State(state): State<AppState>,
     access: Access,
@@ -148,6 +192,15 @@ pub async fn delete_device(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/users/{id}/devices",
+    operation_id = "subscription_delete_devices",
+    tag = "users",
+    summary = "Forget all of a user's devices",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 204, description = "Forgotten"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete_devices(
     State(state): State<AppState>,
     access: Access,

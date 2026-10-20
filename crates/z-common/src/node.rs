@@ -16,7 +16,7 @@ pub struct NodeStatus {
 }
 
 /// How a configuration change was applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Applied {
     /// The core started on it.

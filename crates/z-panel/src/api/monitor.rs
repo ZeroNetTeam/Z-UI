@@ -12,18 +12,19 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::audit::Audit;
 use crate::auth::Access;
-use crate::error::ApiResult;
+use crate::error::{ApiResult, ErrorBody};
 use crate::monitor::logs::{Filter, Record};
 use crate::monitor::system::{Point, Snapshot};
 use crate::server::AppState;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct SystemQuery {
     /// How far back the history goes; an hour unless asked.
     minutes: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct SystemView {
     /// The latest reading; none until the first one is in.
     now: Option<Snapshot>,
@@ -32,6 +33,15 @@ pub struct SystemView {
     panel_uptime: u64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/monitor/system",
+    operation_id = "monitor_system",
+    tag = "monitor",
+    summary = "The server's CPU, memory, disk and network",
+    params(SystemQuery),
+    responses((status = 200, description = "The latest reading and its history", body = SystemView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn system(
     State(state): State<AppState>,
     _: Access,
@@ -46,21 +56,22 @@ pub async fn system(
     })
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct TrafficQuery {
     /// How many days back; a week unless asked.
     days: Option<i64>,
     top: Option<i64>,
 }
 
-#[derive(Serialize)]
-pub struct UsagePoint {
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct TrafficPoint {
     hour: i64,
     uplink: i64,
     downlink: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct TopUser {
     id: i64,
     username: String,
@@ -68,16 +79,25 @@ pub struct TopUser {
     downlink: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct TrafficView {
     /// Every user's bytes added up, hour by hour.
-    points: Vec<UsagePoint>,
+    points: Vec<TrafficPoint>,
     top: Vec<TopUser>,
     /// Everything every user has ever moved.
     lifetime: i64,
 }
 
 /// What users moved: all of it, or for a reseller what their own users did.
+#[utoipa::path(
+    get,
+    path = "/monitor/traffic",
+    operation_id = "monitor_traffic",
+    tag = "monitor",
+    summary = "What users moved",
+    params(TrafficQuery),
+    responses((status = 200, description = "Hourly totals, the biggest users and the lifetime total", body = TrafficView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn traffic(
     State(state): State<AppState>,
     access: Access,
@@ -93,7 +113,7 @@ pub async fn traffic(
             .total_usage(since, owner)
             .await?
             .into_iter()
-            .map(|p| UsagePoint {
+            .map(|p| TrafficPoint {
                 hour: p.hour,
                 uplink: p.uplink,
                 downlink: p.downlink,
@@ -114,7 +134,8 @@ pub async fn traffic(
     }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct LogQuery {
     source: Option<String>,
     level: Option<String>,
@@ -133,6 +154,15 @@ impl LogQuery {
 }
 
 /// The latest records that pass the filter, oldest first.
+#[utoipa::path(
+    get,
+    path = "/logs",
+    operation_id = "monitor_logs",
+    tag = "logs",
+    summary = "The latest log records",
+    params(LogQuery),
+    responses((status = 200, description = "Oldest first", body = Vec<Record>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn logs(
     State(state): State<AppState>,
     _: Access,
@@ -150,7 +180,7 @@ pub async fn logs(
     )
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct LevelView {
     /// `error`, `warn`, `info` or `debug`, or the text of a custom `ZUI_LOG`.
     level: String,
@@ -158,18 +188,35 @@ pub struct LevelView {
     fixed: bool,
 }
 
+#[utoipa::path(
+    get,
+    path = "/logs/level",
+    operation_id = "monitor_level",
+    tag = "logs",
+    summary = "How much is logged",
+    responses((status = 200, description = "The level", body = LevelView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn level(State(state): State<AppState>, _: Access) -> Json<LevelView> {
     let (level, fixed) = state.monitor().logs.level();
     Json(LevelView { level, fixed })
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct LevelInput {
     level: String,
 }
 
 /// Change how much the panel and the core log, from now on and after a
 /// restart.
+#[utoipa::path(
+    put,
+    path = "/logs/level",
+    operation_id = "monitor_set_level",
+    tag = "logs",
+    summary = "Change how much is logged",
+    request_body = LevelInput,
+    responses((status = 200, description = "Changed, and remembered", body = LevelView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn set_level(
     State(state): State<AppState>,
     _: Access,
@@ -198,6 +245,15 @@ fn event(record: &Record) -> Option<Event> {
 
 /// The backlog, then every new record, as server-sent events. A client that
 /// falls too far behind skips ahead rather than slowing the process.
+#[utoipa::path(
+    get,
+    path = "/logs/stream",
+    operation_id = "monitor_stream",
+    tag = "logs",
+    summary = "The log as server-sent events",
+    params(LogQuery),
+    responses((status = 200, description = "The backlog, then every new record", body = String, content_type = "text/event-stream"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn stream(
     State(state): State<AppState>,
     _: Access,

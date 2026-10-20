@@ -11,11 +11,11 @@ use z_common::node::Applied;
 use crate::audit::Audit;
 use crate::auth::Access;
 use crate::core_config;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 
 /// An inbound as the dashboard sees it: the JSON parts parsed.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct InboundView {
     id: i64,
     tag: String,
@@ -52,7 +52,7 @@ impl From<z_db::Inbound> for InboundView {
 }
 
 /// What the dashboard sends to make or change an inbound.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct InboundInput {
     #[serde(default)]
     tag: String,
@@ -79,7 +79,7 @@ fn empty_object() -> Value {
     Value::Object(Default::default())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Changed<T> {
     #[serde(flatten)]
     item: T,
@@ -196,11 +196,28 @@ fn not_found() -> ApiError {
     )
 }
 
+#[utoipa::path(
+    get,
+    path = "/inbounds",
+    operation_id = "inbounds_list",
+    tag = "inbounds",
+    summary = "List inbounds",
+    responses((status = 200, description = "The inbounds", body = Vec<InboundView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(State(state): State<AppState>, _: Access) -> ApiResult<Json<Vec<InboundView>>> {
     let inbounds = state.db().inbounds().await?;
     Ok(Json(inbounds.into_iter().map(InboundView::from).collect()))
 }
 
+#[utoipa::path(
+    get,
+    path = "/inbounds/{id}",
+    operation_id = "inbounds_get",
+    tag = "inbounds",
+    summary = "Read an inbound",
+    params(("id" = i64, Path, description = "the inbound's id")),
+    responses((status = 200, description = "The inbound", body = InboundView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn get(
     State(state): State<AppState>,
     _: Access,
@@ -210,6 +227,15 @@ pub async fn get(
     Ok(Json(inbound.into()))
 }
 
+#[utoipa::path(
+    post,
+    path = "/inbounds",
+    operation_id = "inbounds_create",
+    tag = "inbounds",
+    summary = "Make an inbound (the core takes it first)",
+    request_body = InboundInput,
+    responses((status = 201, description = "Made, and what the core did with it", body = Changed<InboundView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create(
     State(state): State<AppState>,
     _: Access,
@@ -235,6 +261,16 @@ pub async fn create(
     ))
 }
 
+#[utoipa::path(
+    put,
+    path = "/inbounds/{id}",
+    operation_id = "inbounds_update",
+    tag = "inbounds",
+    summary = "Change an inbound",
+    params(("id" = i64, Path, description = "the inbound's id")),
+    request_body = InboundInput,
+    responses((status = 200, description = "Changed, and what the core did", body = Changed<InboundView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn update(
     State(state): State<AppState>,
     _: Access,
@@ -275,12 +311,22 @@ pub async fn update(
     ))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct EnabledInput {
     enabled: bool,
 }
 
 /// Turn an inbound on or off, keeping everything else.
+#[utoipa::path(
+    put,
+    path = "/inbounds/{id}/enabled",
+    operation_id = "inbounds_set_enabled",
+    tag = "inbounds",
+    summary = "Turn an inbound on or off",
+    params(("id" = i64, Path, description = "the inbound's id")),
+    request_body = EnabledInput,
+    responses((status = 200, description = "Changed", body = Changed<InboundView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn set_enabled(
     State(state): State<AppState>,
     _: Access,
@@ -325,6 +371,15 @@ pub async fn set_enabled(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/inbounds/{id}",
+    operation_id = "inbounds_delete",
+    tag = "inbounds",
+    summary = "Delete an inbound",
+    params(("id" = i64, Path, description = "the inbound's id")),
+    responses((status = 200, description = "Deleted, and what the core did", body = Applied), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete(
     State(state): State<AppState>,
     _: Access,

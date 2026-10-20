@@ -199,7 +199,7 @@ pub fn check_ports(inbounds: &[Inbound], panel_port: u16) -> Result<(), ApiError
 
 /// What the compiler noted about a configuration that it accepted anyway:
 /// a setting it reads and does not act on, a resolver it could not parse.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct Warning {
     pub path: String,
     pub message: String,

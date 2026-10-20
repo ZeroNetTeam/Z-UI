@@ -188,7 +188,7 @@ pub fn read(data_dir: &Path) -> Raw {
 }
 
 /// The figures as the dashboard shows them now.
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, utoipa::ToSchema)]
 pub struct Snapshot {
     /// Unix seconds.
     pub at: i64,
@@ -214,7 +214,7 @@ pub struct Snapshot {
 }
 
 /// One point of the history the charts draw.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct Point {
     pub t: i64,
     pub cpu: Option<f32>,

@@ -11,13 +11,13 @@ use serde::{Deserialize, Serialize};
 use crate::accounts;
 use crate::audit::Audit;
 use crate::auth::Access;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::jobs::{period_seconds, INTERVAL};
 use crate::quota;
 use crate::server::AppState;
 
 /// What the dashboard sees of a user.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct UserView {
     id: i64,
     username: String,
@@ -54,7 +54,7 @@ pub struct UserView {
 }
 
 /// What a user moves on to when it runs out of data or time.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NextPlan {
     #[serde(default)]
     data_limit: i64,
@@ -124,7 +124,7 @@ impl From<z_db::User> for UserView {
 }
 
 /// What the dashboard sends to make or change a user.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct UserInput {
     /// Left out by a bulk creation, which numbers its own.
     #[serde(default)]
@@ -404,7 +404,8 @@ async fn settle(state: &AppState, user: z_db::User) -> Result<z_db::User, ApiErr
     crate::jobs::settle(state.db(), user, &stored, z_db::now()).await
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListQuery {
     search: Option<String>,
     status: Option<String>,
@@ -416,12 +417,21 @@ pub struct ListQuery {
     limit: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct UserPage {
     users: Vec<UserView>,
     total: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/users",
+    operation_id = "users_list",
+    tag = "users",
+    summary = "List users",
+    params(ListQuery),
+    responses((status = 200, description = "A page of users", body = UserPage), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(
     State(state): State<AppState>,
     access: Access,
@@ -461,6 +471,15 @@ pub async fn list(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/users/{id}",
+    operation_id = "users_get",
+    tag = "users",
+    summary = "Read a user",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 200, description = "The user", body = UserView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn get(
     State(state): State<AppState>,
     access: Access,
@@ -470,6 +489,15 @@ pub async fn get(
     Ok(Json(view_of(&state, user).await?))
 }
 
+#[utoipa::path(
+    post,
+    path = "/users",
+    operation_id = "users_create",
+    tag = "users",
+    summary = "Make a user",
+    request_body = UserInput,
+    responses((status = 201, description = "Made", body = UserView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create(
     State(state): State<AppState>,
     access: Access,
@@ -504,6 +532,16 @@ pub async fn create(
     ))
 }
 
+#[utoipa::path(
+    put,
+    path = "/users/{id}",
+    operation_id = "users_update",
+    tag = "users",
+    summary = "Change a user",
+    params(("id" = i64, Path, description = "the user's id")),
+    request_body = UserInput,
+    responses((status = 200, description = "Changed", body = UserView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn update(
     State(state): State<AppState>,
     access: Access,
@@ -550,6 +588,15 @@ pub async fn update(
     Ok((audit, Json(view_of(&state, after).await?)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/users/{id}",
+    operation_id = "users_delete",
+    tag = "users",
+    summary = "Delete a user",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 204, description = "Deleted"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete(
     State(state): State<AppState>,
     access: Access,
@@ -567,6 +614,15 @@ pub async fn delete(
 }
 
 /// Zero the period's traffic; a user limited by it is let back in.
+#[utoipa::path(
+    post,
+    path = "/users/{id}/reset",
+    operation_id = "users_reset",
+    tag = "users",
+    summary = "Zero a user's traffic for the period",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 200, description = "Reset", body = UserView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn reset(
     State(state): State<AppState>,
     access: Access,
@@ -584,6 +640,15 @@ pub async fn reset(
 
 /// New credentials and subscription link; the old ones stop working and
 /// their sessions end.
+#[utoipa::path(
+    post,
+    path = "/users/{id}/revoke",
+    operation_id = "users_revoke",
+    tag = "users",
+    summary = "Give a user new credentials and link",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 200, description = "Revoked; open sessions ended", body = UserView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn revoke(
     State(state): State<AppState>,
     access: Access,
@@ -603,11 +668,20 @@ pub async fn revoke(
     Ok((audit, Json(view_of(&state, after).await?)))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Ended {
     sessions: usize,
 }
 
+#[utoipa::path(
+    post,
+    path = "/users/{id}/end-sessions",
+    operation_id = "users_end_sessions",
+    tag = "users",
+    summary = "End a user's open sessions",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 200, description = "How many ended", body = Ended), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn end_sessions(
     State(state): State<AppState>,
     access: Access,
@@ -621,13 +695,22 @@ pub async fn end_sessions(
     ))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Connected {
     sessions: u64,
     addresses: Vec<String>,
 }
 
 /// The sessions a user has open now, and the addresses they come from.
+#[utoipa::path(
+    get,
+    path = "/users/{id}/online",
+    operation_id = "users_online",
+    tag = "users",
+    summary = "A user's open sessions",
+    params(("id" = i64, Path, description = "the user's id")),
+    responses((status = 200, description = "Sessions and their addresses", body = Connected), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn online(
     State(state): State<AppState>,
     access: Access,
@@ -652,24 +735,34 @@ pub async fn online(
     )))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct UsageQuery {
     days: Option<i64>,
 }
 
-#[derive(Serialize)]
-pub struct UsagePoint {
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct UserUsagePoint {
     hour: i64,
     uplink: i64,
     downlink: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/users/{id}/usage",
+    operation_id = "users_usage",
+    tag = "users",
+    summary = "A user's traffic by the hour",
+    params(("id" = i64, Path, description = "the user's id"), UsageQuery),
+    responses((status = 200, description = "Hourly bytes, oldest first", body = Vec<UserUsagePoint>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn usage(
     State(state): State<AppState>,
     access: Access,
     Path(id): Path<i64>,
     Query(query): Query<UsageQuery>,
-) -> ApiResult<Json<Vec<UsagePoint>>> {
+) -> ApiResult<Json<Vec<UserUsagePoint>>> {
     visible(&state, &access, id).await?;
     let days = query.days.unwrap_or(7).clamp(1, 366);
     let since = z_db::now() - days * 86_400;
@@ -677,7 +770,7 @@ pub async fn usage(
     Ok(Json(
         points
             .into_iter()
-            .map(|p| UsagePoint {
+            .map(|p| UserUsagePoint {
                 hour: p.hour,
                 uplink: p.uplink,
                 downlink: p.downlink,
@@ -687,6 +780,14 @@ pub async fn usage(
 }
 
 /// Users by status, with `total` and `online` beside them.
+#[utoipa::path(
+    get,
+    path = "/users/counts",
+    operation_id = "users_counts",
+    tag = "users",
+    summary = "Count users by status",
+    responses((status = 200, description = "A count for each status, with `total` and `online`", body = HashMap<String, i64>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn counts(
     State(state): State<AppState>,
     access: Access,
@@ -704,7 +805,7 @@ pub async fn counts(
     Ok(Json(counts))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum BulkAction {
     Enable,
@@ -742,14 +843,14 @@ impl BulkAction {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkRequest {
     ids: Vec<i64>,
     #[serde(flatten)]
     action: BulkAction,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct BulkResult {
     changed: usize,
     /// Users left as they were because the change would pass the admin's
@@ -759,6 +860,15 @@ pub struct BulkResult {
 
 /// One action on many users. Users the admin may not see are left out as
 /// though they were not there.
+#[utoipa::path(
+    post,
+    path = "/users/bulk",
+    operation_id = "users_bulk",
+    tag = "users",
+    summary = "Do one thing to many users",
+    request_body = BulkRequest,
+    responses((status = 200, description = "How many were changed", body = BulkResult), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn bulk(
     State(state): State<AppState>,
     access: Access,
@@ -882,7 +992,7 @@ pub async fn bulk(
     Ok((audit, Json(BulkResult { changed, skipped })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct BulkCreate {
     /// Usernames are `prefix` followed by a number from `start`.
     prefix: String,
@@ -898,6 +1008,15 @@ fn one() -> i64 {
 }
 
 /// Many users alike, `prefix1`, `prefix2`, … Names already taken are skipped.
+#[utoipa::path(
+    post,
+    path = "/users/bulk-create",
+    operation_id = "users_bulk_create",
+    tag = "users",
+    summary = "Make many alike users",
+    request_body = BulkCreate,
+    responses((status = 201, description = "How many were made", body = BulkResult), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn bulk_create(
     State(state): State<AppState>,
     access: Access,

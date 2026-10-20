@@ -8,14 +8,24 @@ use serde_json::{json, Value};
 use zero_runtime::keys;
 
 use crate::auth::Access;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct FromQuery {
     /// An existing private key or seed, to derive its public half.
     private: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/keys/x25519",
+    operation_id = "keys_x25519",
+    tag = "tools",
+    summary = "Make an X25519 key pair",
+    params(FromQuery),
+    responses((status = 200, description = "`private_key` and `public_key`", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn x25519(_: Access, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
     let pair = match query.private.filter(|p| !p.is_empty()) {
         Some(private) => keys::x25519_from_private(&private)
@@ -27,6 +37,15 @@ pub async fn x25519(_: Access, Query(query): Query<FromQuery>) -> ApiResult<Json
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/keys/wireguard",
+    operation_id = "keys_wireguard",
+    tag = "tools",
+    summary = "Make a WireGuard key pair",
+    params(FromQuery),
+    responses((status = 200, description = "`private_key` and `public_key`", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn wireguard(_: Access, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
     let pair = match query.private.filter(|p| !p.is_empty()) {
         Some(private) => keys::wireguard_from_private(&private)
@@ -38,6 +57,15 @@ pub async fn wireguard(_: Access, Query(query): Query<FromQuery>) -> ApiResult<J
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/keys/mldsa65",
+    operation_id = "keys_mldsa65",
+    tag = "tools",
+    summary = "Make an ML-DSA-65 key pair",
+    params(FromQuery),
+    responses((status = 200, description = "The keys", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn mldsa65(_: Access, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
     let pair = match query.private.filter(|p| !p.is_empty()) {
         Some(seed) => keys::mldsa65_from_seed(&seed)
@@ -47,15 +75,33 @@ pub async fn mldsa65(_: Access, Query(query): Query<FromQuery>) -> ApiResult<Jso
     Ok(Json(json!({ "seed": pair.seed, "verify": pair.verify })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/keys/uuid",
+    operation_id = "keys_uuid",
+    tag = "tools",
+    summary = "Make a UUID",
+    responses((status = 200, description = "`uuid`", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn uuid(_: Access) -> Json<Value> {
     Json(json!({ "uuid": keys::uuid() }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct BytesQuery {
     bytes: Option<usize>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/keys/short-id",
+    operation_id = "keys_short_id",
+    tag = "tools",
+    summary = "Make a REALITY short id",
+    params(BytesQuery),
+    responses((status = 200, description = "`short_id`", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn short_id(_: Access, Query(query): Query<BytesQuery>) -> ApiResult<Json<Value>> {
     let id = keys::short_id(query.bytes.unwrap_or(8))
         .map_err(|error| ApiError::bad_request("invalid_length", error))?;
@@ -64,6 +110,15 @@ pub async fn short_id(_: Access, Query(query): Query<BytesQuery>) -> ApiResult<J
 
 /// A random secret; `bytes` 16 or 32 for a Shadowsocks 2022 key (then in
 /// standard base64, as that method wants).
+#[utoipa::path(
+    get,
+    path = "/keys/password",
+    operation_id = "keys_password",
+    tag = "tools",
+    summary = "Make a random password",
+    params(BytesQuery),
+    responses((status = 200, description = "`password`", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn password(_: Access, Query(query): Query<BytesQuery>) -> ApiResult<Json<Value>> {
     let bytes = query.bytes.unwrap_or(16);
     if !(8..=64).contains(&bytes) {
@@ -82,12 +137,22 @@ pub async fn password(_: Access, Query(query): Query<BytesQuery>) -> ApiResult<J
     Ok(Json(json!({ "password": secret })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct VlessEncryptionQuery {
     #[serde(default)]
     mlkem: bool,
 }
 
+#[utoipa::path(
+    get,
+    path = "/keys/vless-encryption",
+    operation_id = "keys_vless_encryption",
+    tag = "tools",
+    summary = "Make a VLESS encryption key pair",
+    params(VlessEncryptionQuery),
+    responses((status = 200, description = "The keys", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn vless_encryption(_: Access, Query(query): Query<VlessEncryptionQuery>) -> Json<Value> {
     let (encryption, decryption) = keys::vless_encryption(query.mlkem, "native", "0rtt", "600s");
     Json(json!({ "encryption": encryption, "decryption": decryption }))

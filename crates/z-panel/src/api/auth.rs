@@ -14,20 +14,20 @@ use serde::{Deserialize, Serialize};
 use crate::audit::{self, Actor, Audit};
 use crate::auth::access::{assemble, Access, Via};
 use crate::auth::{client_address, is_secure, password, session, totp};
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 
 /// How long a 2FA secret shown for scanning waits for its confirming code.
 const PENDING_TOTP: Duration = Duration::from_secs(10 * 60);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RoleRef {
     pub id: i64,
     pub name: String,
 }
 
 /// What an admin has handed out and may still hand out.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Quota {
     pub user_limit: i64,
     pub data_quota: i64,
@@ -39,7 +39,7 @@ pub struct Quota {
 
 /// What the dashboard may know about the admin using it: who, and what they
 /// may do, so it can show only that.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Me {
     pub id: i64,
     pub username: String,
@@ -85,7 +85,7 @@ impl Me {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct AuthState {
     /// No admin exists yet: the setup page is the way in.
     setup_required: bool,
@@ -93,6 +93,15 @@ pub struct AuthState {
 }
 
 /// Where the dashboard should go: setup, sign-in, or in.
+#[utoipa::path(
+    get,
+    path = "/auth/state",
+    operation_id = "auth_state",
+    tag = "auth",
+    summary = "Where the dashboard should go",
+    responses((status = 200, description = "Whether setup is needed, and who is signed in", body = AuthState), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+    security(()),
+)]
 pub async fn state(State(state): State<AppState>, mut parts: Parts) -> ApiResult<Json<AuthState>> {
     let setup_required = state.db().admin_count().await? == 0;
     let access = Access::from_request_parts(&mut parts, &state).await.ok();
@@ -138,7 +147,7 @@ async fn signed_in(
     Ok(response)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct SetupRequest {
     token: String,
     username: String,
@@ -147,6 +156,16 @@ pub struct SetupRequest {
 
 /// Create the first admin, with the token printed at start. Refused once
 /// any admin exists.
+#[utoipa::path(
+    post,
+    path = "/setup",
+    operation_id = "auth_setup",
+    tag = "auth",
+    summary = "Make the first admin",
+    request_body = SetupRequest,
+    responses((status = 200, description = "Signed in as the new sudo admin", body = Me), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+    security(()),
+)]
 pub async fn setup(
     State(state): State<AppState>,
     parts: Parts,
@@ -181,7 +200,7 @@ pub async fn setup(
     signed_in(&state, &parts, &admin, "auth.setup").await
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct LoginRequest {
     username: String,
     password: String,
@@ -210,6 +229,16 @@ async fn failed_sign_in(
     .await;
 }
 
+#[utoipa::path(
+    post,
+    path = "/auth/login",
+    operation_id = "auth_login",
+    tag = "auth",
+    summary = "Sign in",
+    request_body = LoginRequest,
+    responses((status = 200, description = "Signed in: the session cookie is set", body = Me), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+    security(()),
+)]
 pub async fn login(
     State(state): State<AppState>,
     parts: Parts,
@@ -280,6 +309,15 @@ pub async fn login(
     signed_in(&state, &parts, &admin, "auth.login").await
 }
 
+#[utoipa::path(
+    post,
+    path = "/auth/logout",
+    operation_id = "auth_logout",
+    tag = "auth",
+    summary = "Sign out",
+    responses((status = 204, description = "Signed out"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+    security(()),
+)]
 pub async fn logout(State(state): State<AppState>, parts: Parts) -> Response {
     let cookie = session::clear_cookie(
         &state.config().under_base("/"),
@@ -292,11 +330,19 @@ pub async fn logout(State(state): State<AppState>, parts: Parts) -> Response {
     (headers, StatusCode::NO_CONTENT).into_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/auth/me",
+    operation_id = "auth_me",
+    tag = "auth",
+    summary = "Who am I and what may I do",
+    responses((status = 200, description = "The signed-in admin", body = Me), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn me(State(state): State<AppState>, access: Access) -> ApiResult<Json<Me>> {
     Ok(Json(Me::build(&state, &access).await?))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PasswordRequest {
     current: String,
     new: String,
@@ -304,6 +350,15 @@ pub struct PasswordRequest {
 
 /// Change one's own password. Every other session of this admin ends; this
 /// one is renewed.
+#[utoipa::path(
+    post,
+    path = "/auth/password",
+    operation_id = "auth_change_password",
+    tag = "auth",
+    summary = "Change my password",
+    request_body = PasswordRequest,
+    responses((status = 200, description = "Changed; other sessions ended", body = Me), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn change_password(
     State(state): State<AppState>,
     access: Access,
@@ -325,7 +380,7 @@ pub async fn change_password(
     signed_in(&state, &parts, &admin, "auth.password").await
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct TotpSetup {
     secret: String,
     otpauth: String,
@@ -335,6 +390,14 @@ pub struct TotpSetup {
 
 /// Make a 2FA secret for this admin to scan. It takes effect only once a
 /// code from it is confirmed ([`totp_enable`]).
+#[utoipa::path(
+    post,
+    path = "/auth/2fa/begin",
+    operation_id = "auth_totp_begin",
+    tag = "auth",
+    summary = "Start two-factor setup",
+    responses((status = 200, description = "A secret to scan", body = TotpSetup), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn totp_begin(
     State(state): State<AppState>,
     access: Access,
@@ -369,12 +432,21 @@ pub async fn totp_begin(
     ))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CodeRequest {
     code: String,
 }
 
 /// Turn 2FA on with the secret from [`totp_begin`], proven by a code.
+#[utoipa::path(
+    post,
+    path = "/auth/2fa/enable",
+    operation_id = "auth_totp_enable",
+    tag = "auth",
+    summary = "Turn two-factor sign-in on",
+    request_body = CodeRequest,
+    responses((status = 200, description = "On", body = Me), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn totp_enable(
     State(state): State<AppState>,
     access: Access,
@@ -402,7 +474,7 @@ pub async fn totp_enable(
     signed_in(&state, &parts, &admin, "auth.2fa_enable").await
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct DisableTotpRequest {
     password: String,
     code: String,
@@ -410,6 +482,15 @@ pub struct DisableTotpRequest {
 
 /// Turn 2FA off: both the password and a current code are needed, so a
 /// session left open is not enough.
+#[utoipa::path(
+    post,
+    path = "/auth/2fa/disable",
+    operation_id = "auth_totp_disable",
+    tag = "auth",
+    summary = "Turn two-factor sign-in off",
+    request_body = DisableTotpRequest,
+    responses((status = 200, description = "Off", body = Me), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn totp_disable(
     State(state): State<AppState>,
     access: Access,

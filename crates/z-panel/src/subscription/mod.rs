@@ -41,7 +41,7 @@ use endpoint::Endpoint;
 pub const SETTING: &str = "subscription";
 
 /// What an admin decides about subscriptions.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct Settings {
     /// The path subscriptions are served under: `/sub` gives `/sub/{token}`.

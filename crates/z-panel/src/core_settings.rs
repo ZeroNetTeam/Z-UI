@@ -182,7 +182,7 @@ pub fn assemble(document: &Value, inbounds: Vec<Value>, data_dir: &Path) -> Valu
 
 /// What the Iran preset is asked for. Every field but `proxies` has a default
 /// that fits most servers.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct IranOptions {
     /// Share links of the outbounds the traffic goes out through; the first
@@ -202,7 +202,9 @@ pub struct IranOptions {
     /// Edge addresses (`ip:port`) to find a clean Cloudflare address among.
     pub clean_ip_candidates: Vec<String>,
     pub clean_ip_host: String,
-    /// The admin's own rules, tried before the preset's.
+    /// The admin's own rules, tried before the preset's: Xray-style routing
+    /// rule objects.
+    #[schema(value_type = Vec<Object>)]
     pub user_rules: Vec<zero_config::UserRule>,
 }
 

@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::audit::Audit;
 use crate::auth::Access;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct HostView {
     id: i64,
     inbound_id: i64,
@@ -48,7 +48,7 @@ impl From<z_db::Host> for HostView {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct HostInput {
     inbound_id: i64,
     remark: String,
@@ -143,6 +143,14 @@ fn not_found() -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "not_found", "there is no such host")
 }
 
+#[utoipa::path(
+    get,
+    path = "/hosts",
+    operation_id = "hosts_list",
+    tag = "hosts",
+    summary = "List hosts",
+    responses((status = 200, description = "The hosts", body = Vec<HostView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(State(state): State<AppState>, _: Access) -> ApiResult<Json<Vec<HostView>>> {
     Ok(Json(
         state
@@ -155,6 +163,15 @@ pub async fn list(State(state): State<AppState>, _: Access) -> ApiResult<Json<Ve
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/hosts",
+    operation_id = "hosts_create",
+    tag = "hosts",
+    summary = "Make a host",
+    request_body = HostInput,
+    responses((status = 201, description = "Made", body = HostView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create(
     State(state): State<AppState>,
     _: Access,
@@ -166,6 +183,16 @@ pub async fn create(
     Ok((StatusCode::CREATED, audit, Json(host.into())))
 }
 
+#[utoipa::path(
+    put,
+    path = "/hosts/{id}",
+    operation_id = "hosts_update",
+    tag = "hosts",
+    summary = "Change a host",
+    params(("id" = i64, Path, description = "the host's id")),
+    request_body = HostInput,
+    responses((status = 200, description = "Changed", body = HostView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn update(
     State(state): State<AppState>,
     _: Access,
@@ -182,6 +209,15 @@ pub async fn update(
     Ok((audit, Json(host.into())))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/hosts/{id}",
+    operation_id = "hosts_delete",
+    tag = "hosts",
+    summary = "Delete a host",
+    params(("id" = i64, Path, description = "the host's id")),
+    responses((status = 204, description = "Deleted"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete(
     State(state): State<AppState>,
     _: Access,

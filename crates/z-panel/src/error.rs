@@ -61,6 +61,18 @@ impl From<z_db::DbError> for ApiError {
     }
 }
 
+/// What every failed request answers with, as the API documents it.
+#[derive(Serialize, utoipa::ToSchema)]
+#[allow(dead_code)]
+pub struct ErrorBody {
+    /// A stable code the dashboard translates: `forbidden`, `quota_exceeded`…
+    error: String,
+    /// The same in English, for scripts and logs.
+    message: String,
+    /// Seconds to wait before trying again, when rate limited.
+    retry_after: Option<u64>,
+}
+
 #[derive(Serialize)]
 struct Body<'a> {
     error: &'a str,

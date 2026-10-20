@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::audit::Audit;
 use crate::auth::{password, Access};
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 
 /// An admin as a sudo admin sees them.
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct AdminRow {
     id: i64,
     username: String,
@@ -89,6 +89,14 @@ fn not_found() -> ApiError {
     ApiError::not_found("there is no such admin")
 }
 
+#[utoipa::path(
+    get,
+    path = "/admins",
+    operation_id = "admins_list",
+    tag = "admins",
+    summary = "List admins with what they hold",
+    responses((status = 200, description = "The admins", body = Vec<AdminRow>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(State(state): State<AppState>, access: Access) -> ApiResult<Json<Vec<AdminRow>>> {
     access.require_sudo()?;
     let roles = role_names(&state).await?;
@@ -110,7 +118,7 @@ pub async fn list(State(state): State<AppState>, access: Access) -> ApiResult<Js
 }
 
 /// What a sudo admin sends to make or change an admin.
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct AdminInput {
     /// Only when making one; a username does not change.
     #[serde(default)]
@@ -185,6 +193,15 @@ async fn fields(state: &AppState, input: &AdminInput) -> ApiResult<z_db::AdminFi
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/admins",
+    operation_id = "admins_create",
+    tag = "admins",
+    summary = "Make an admin",
+    request_body = AdminInput,
+    responses((status = 201, description = "Made", body = AdminRow), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create(
     State(state): State<AppState>,
     access: Access,
@@ -235,6 +252,16 @@ fn describe(fields: &z_db::AdminFields) -> String {
     )
 }
 
+#[utoipa::path(
+    put,
+    path = "/admins/{id}",
+    operation_id = "admins_update",
+    tag = "admins",
+    summary = "Change an admin (and set a new password, if one is sent)",
+    params(("id" = i64, Path, description = "the admin's id")),
+    request_body = AdminInput,
+    responses((status = 200, description = "Changed", body = AdminRow), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn update(
     State(state): State<AppState>,
     access: Access,
@@ -284,12 +311,22 @@ pub async fn update(
     Ok((audit, Json(one(&state, id).await?)))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct DeleteQuery {
     /// Who gets their users; the admin deleting them by default.
     transfer_to: Option<i64>,
 }
 
+#[utoipa::path(
+    delete,
+    path = "/admins/{id}",
+    operation_id = "admins_delete",
+    tag = "admins",
+    summary = "Delete an admin; their users go to another",
+    params(("id" = i64, Path, description = "the admin's id"), DeleteQuery),
+    responses((status = 204, description = "Deleted"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete(
     State(state): State<AppState>,
     access: Access,
@@ -326,6 +363,15 @@ pub async fn delete(
 
 /// Turn off an admin's two-factor sign-in, for one who lost their
 /// authenticator. It also signs them out.
+#[utoipa::path(
+    delete,
+    path = "/admins/{id}/2fa",
+    operation_id = "admins_reset_totp",
+    tag = "admins",
+    summary = "Turn off an admin's two-factor sign-in",
+    params(("id" = i64, Path, description = "the admin's id")),
+    responses((status = 204, description = "Off; the admin is signed out"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn reset_totp(
     State(state): State<AppState>,
     access: Access,
@@ -354,6 +400,15 @@ pub async fn reset_totp(
 }
 
 /// End every session an admin has open.
+#[utoipa::path(
+    post,
+    path = "/admins/{id}/sign-out",
+    operation_id = "admins_sign_out",
+    tag = "admins",
+    summary = "Sign an admin out everywhere",
+    params(("id" = i64, Path, description = "the admin's id")),
+    responses((status = 204, description = "Signed out"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn sign_out(
     State(state): State<AppState>,
     access: Access,

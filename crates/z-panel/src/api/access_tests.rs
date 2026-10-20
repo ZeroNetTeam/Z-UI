@@ -1421,3 +1421,225 @@ async fn what_admins_do_is_written_down_and_found_again() {
     )
     .await;
 }
+
+/// Every operation of the API document, as `(method, path, operation)`.
+fn operations() -> Vec<(&'static str, String, Value)> {
+    let doc = serde_json::to_value(super::spec()).unwrap();
+    let mut found = Vec::new();
+    for (path, item) in doc["paths"].as_object().unwrap() {
+        for method in ["get", "put", "post", "delete", "patch"] {
+            if let Some(operation) = item.get(method) {
+                found.push((method, path.clone(), operation.clone()));
+            }
+        }
+    }
+    found
+}
+
+/// A path of the document with its parameters filled in.
+fn concrete(path: &str) -> String {
+    format!("/api{}", path.replace("{id}", "1").replace("{device}", "1"))
+}
+
+#[test]
+fn the_document_describes_every_operation_and_what_it_needs() {
+    let doc = serde_json::to_value(super::spec()).unwrap();
+    assert_eq!(doc["info"]["title"], "Z-UI API");
+    let operations = operations();
+    assert!(operations.len() >= 80, "{} operations", operations.len());
+    let declared: Vec<&str> = doc["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tag| tag["name"].as_str().unwrap())
+        .collect();
+    for (method, path, operation) in &operations {
+        let label = format!("{method} {path}");
+        assert!(operation["summary"].is_string(), "{label} has no summary");
+        let tag = operation["tags"][0]
+            .as_str()
+            .unwrap_or_else(|| panic!("{label} has no tag"));
+        assert!(
+            declared.contains(&tag),
+            "{label}: tag {tag} is not declared"
+        );
+        assert!(
+            operation["responses"]
+                .as_object()
+                .is_some_and(|r| r.len() >= 2),
+            "{label}"
+        );
+    }
+    let mut ids: Vec<&str> = operations
+        .iter()
+        .map(|(_, _, operation)| operation["operationId"].as_str().expect("an operation id"))
+        .collect();
+    let all = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(
+        ids.len(),
+        all,
+        "operation ids repeat; clients are generated from them"
+    );
+    // The permission an operation needs comes from the guard its route has.
+    let needs = |method: &str, path: &str| {
+        operations
+            .iter()
+            .find(|(m, p, _)| *m == method && p == path)
+            .unwrap_or_else(|| panic!("no {method} {path}"))
+            .2["x-permission"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    assert_eq!(needs("get", "/users").as_deref(), Some("users.read"));
+    assert_eq!(needs("post", "/users").as_deref(), Some("users.write"));
+    assert_eq!(
+        needs("delete", "/users/{id}").as_deref(),
+        Some("users.write")
+    );
+    assert_eq!(
+        needs("get", "/monitor/traffic").as_deref(),
+        Some("users.read")
+    );
+    assert_eq!(
+        needs("get", "/monitor/system").as_deref(),
+        Some("monitor.read")
+    );
+    assert_eq!(
+        needs("post", "/core/validate").as_deref(),
+        Some("core.read")
+    );
+    assert_eq!(
+        needs("get", "/tools/reality-check").as_deref(),
+        Some("inbounds.write")
+    );
+    assert_eq!(needs("get", "/admins").as_deref(), Some("sudo"));
+    assert_eq!(needs("post", "/auth/password").as_deref(), Some("session"));
+    assert_eq!(
+        needs("post", "/api-keys").as_deref(),
+        Some("session + api.write")
+    );
+    assert_eq!(needs("get", "/audit").as_deref(), Some("audit.read"));
+    assert_eq!(needs("get", "/auth/me"), None);
+    assert!(operations
+        .iter()
+        .find(|(m, p, _)| *m == "get" && p == "/users")
+        .unwrap()
+        .2["description"]
+        .as_str()
+        .unwrap()
+        .starts_with("**Needs:** `users.read`"));
+
+    // Every schema a response or request names is in the document.
+    let schemas = doc["components"]["schemas"].as_object().unwrap();
+    let text = doc.to_string();
+    for reference in text.split("\"$ref\":\"#/components/schemas/").skip(1) {
+        let name = reference.split('"').next().unwrap();
+        assert!(schemas.contains_key(name), "no schema {name}");
+    }
+    for name in [
+        "UserView",
+        "UserInput",
+        "ErrorBody",
+        "Me",
+        "KeyView",
+        "AuditPage",
+        "Changed_InboundView",
+    ] {
+        assert!(schemas.contains_key(name), "no schema {name}");
+    }
+    let schemes = doc["components"]["securitySchemes"].as_object().unwrap();
+    assert_eq!(schemes["bearer"]["scheme"], "bearer");
+    assert_eq!(schemes["session"]["name"], "z_ui_session");
+    assert_eq!(schemes["api_key"]["name"], "X-API-Key");
+}
+
+#[tokio::test]
+async fn no_operation_lets_in_anyone_it_should_not() {
+    let (panel, owner) = world().await;
+    let none = panel
+        .send(
+            "POST",
+            "/api/roles",
+            Some(&owner),
+            Some(json!({"name": "Nothing", "permissions": []})),
+        )
+        .await
+        .json()["id"]
+        .as_i64()
+        .unwrap();
+    let (_, nobody) = admin(&panel, &owner, "nobody", json!({"role_id": none})).await;
+    for (method, path, operation) in operations() {
+        let label = format!("{method} {path}");
+        let url = concrete(&path);
+        let body = || Some(json!({}));
+        let open = operation["security"] == json!([{}]);
+        let anonymous = panel.send(&method.to_uppercase(), &url, None, body()).await;
+        if open {
+            assert_ne!(
+                anonymous.status,
+                StatusCode::FORBIDDEN,
+                "{label}: {}",
+                anonymous.body
+            );
+            continue;
+        }
+        assert_eq!(
+            anonymous.status,
+            StatusCode::UNAUTHORIZED,
+            "{label} is open to anyone: {}",
+            anonymous.body
+        );
+        let needs = operation["x-permission"].as_str();
+        let signed_in = panel
+            .send(&method.to_uppercase(), &url, Some(&nobody), body())
+            .await;
+        match needs {
+            // Only a sign-in is asked, so a sign-in gets as far as the handler.
+            None | Some("session") => assert!(
+                !matches!(
+                    signed_in.status,
+                    StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+                ),
+                "{label}: {}",
+                signed_in.body
+            ),
+            Some(needs) => {
+                assert_eq!(
+                    signed_in.status,
+                    StatusCode::FORBIDDEN,
+                    "{label} needs {needs} but an admin with no permissions got in: {}",
+                    signed_in.body
+                );
+                assert_eq!(signed_in.json()["error"], "forbidden", "{label}");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_document_is_served_to_whoever_is_signed_in_with_this_panels_address() {
+    let (panel, owner) = world().await;
+    assert_eq!(
+        panel.get("/api/openapi.json", None).await.status,
+        StatusCode::UNAUTHORIZED
+    );
+    let reply = panel
+        .request(
+            "GET",
+            "/api/openapi.json",
+            &[("cookie", owner.as_str()), ("host", "panel.example:2053")],
+            None,
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    let doc = reply.json();
+    assert_eq!(doc["servers"][0]["url"], "http://panel.example:2053/api");
+    assert!(doc["paths"]["/users"]["get"].is_object());
+    let (_, shop) = reseller(&panel, &owner, "shop", json!({})).await;
+    assert_eq!(
+        panel.get("/api/openapi.json", Some(&shop)).await.status,
+        StatusCode::OK
+    );
+}

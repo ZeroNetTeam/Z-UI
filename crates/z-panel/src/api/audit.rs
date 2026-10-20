@@ -5,10 +5,11 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::Access;
-use crate::error::ApiResult;
+use crate::error::{ApiResult, ErrorBody};
 use crate::server::AppState;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct AuditQuery {
     limit: Option<i64>,
     /// Entries older than this id: the `next` of the page before.
@@ -23,7 +24,7 @@ pub struct AuditQuery {
     failed: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct EntryView {
     id: i64,
     at: i64,
@@ -37,13 +38,22 @@ pub struct EntryView {
     status: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct AuditPage {
     entries: Vec<EntryView>,
     /// Pass as `before` for the next, older page; none at the end.
     next: Option<i64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/audit",
+    operation_id = "audit_list",
+    tag = "audit",
+    summary = "Read the audit log",
+    params(AuditQuery),
+    responses((status = 200, description = "Newest first; pass `next` as `before` for the next page", body = AuditPage), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(
     State(state): State<AppState>,
     _: Access,

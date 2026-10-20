@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 use crate::audit::Audit;
 use crate::auth::Access;
 use crate::core_config;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::jobs::period_seconds;
 use crate::server::AppState;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct GroupView {
     id: i64,
     name: String,
@@ -22,7 +22,7 @@ pub struct GroupView {
     users: usize,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct GroupInput {
     name: String,
     #[serde(default)]
@@ -31,6 +31,14 @@ pub struct GroupInput {
     inbound_ids: Vec<i64>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/groups",
+    operation_id = "groups_list",
+    tag = "groups",
+    summary = "List access groups",
+    responses((status = 200, description = "The groups", body = Vec<GroupView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(
     State(state): State<AppState>,
     access: Access,
@@ -113,6 +121,15 @@ async fn save(state: &AppState, id: Option<i64>, input: GroupInput) -> ApiResult
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/groups",
+    operation_id = "groups_create",
+    tag = "groups",
+    summary = "Make a group",
+    request_body = GroupInput,
+    responses((status = 201, description = "Made", body = GroupView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create(
     State(state): State<AppState>,
     _: Access,
@@ -123,6 +140,16 @@ pub async fn create(
     Ok((StatusCode::CREATED, audit, Json(group)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/groups/{id}",
+    operation_id = "groups_update",
+    tag = "groups",
+    summary = "Change a group",
+    params(("id" = i64, Path, description = "the group's id")),
+    request_body = GroupInput,
+    responses((status = 200, description = "Changed", body = GroupView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn update(
     State(state): State<AppState>,
     _: Access,
@@ -140,6 +167,15 @@ pub async fn update(
     Ok((Audit::new("group.update", &group.name), Json(group)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/groups/{id}",
+    operation_id = "groups_delete",
+    tag = "groups",
+    summary = "Delete a group",
+    params(("id" = i64, Path, description = "the group's id")),
+    responses((status = 204, description = "Deleted"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete(
     State(state): State<AppState>,
     _: Access,
@@ -166,7 +202,7 @@ pub async fn delete(
     Ok((StatusCode::NO_CONTENT, audit, ()))
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TemplateView {
     #[serde(default)]
     id: i64,
@@ -213,6 +249,14 @@ impl From<z_db::UserTemplate> for TemplateView {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/templates",
+    operation_id = "groups_templates",
+    tag = "templates",
+    summary = "List user templates",
+    responses((status = 200, description = "The templates", body = Vec<TemplateView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn templates(
     State(state): State<AppState>,
     access: Access,
@@ -296,6 +340,15 @@ async fn save_template(state: &AppState, id: i64, input: TemplateView) -> ApiRes
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/templates",
+    operation_id = "groups_create_template",
+    tag = "templates",
+    summary = "Make a template",
+    request_body = TemplateView,
+    responses((status = 201, description = "Made", body = TemplateView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create_template(
     State(state): State<AppState>,
     _: Access,
@@ -306,6 +359,16 @@ pub async fn create_template(
     Ok((StatusCode::CREATED, audit, Json(template)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/templates/{id}",
+    operation_id = "groups_update_template",
+    tag = "templates",
+    summary = "Change a template",
+    params(("id" = i64, Path, description = "the template's id")),
+    request_body = TemplateView,
+    responses((status = 200, description = "Changed", body = TemplateView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn update_template(
     State(state): State<AppState>,
     _: Access,
@@ -319,6 +382,15 @@ pub async fn update_template(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/templates/{id}",
+    operation_id = "groups_delete_template",
+    tag = "templates",
+    summary = "Delete a template",
+    params(("id" = i64, Path, description = "the template's id")),
+    responses((status = 204, description = "Deleted"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete_template(
     State(state): State<AppState>,
     _: Access,

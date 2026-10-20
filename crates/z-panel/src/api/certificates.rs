@@ -13,10 +13,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::audit::Audit;
 use crate::auth::Access;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct CertificateView {
     id: i64,
     name: String,
@@ -46,7 +46,7 @@ impl From<z_db::Certificate> for CertificateView {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CertificateInput {
     #[serde(default)]
     name: String,
@@ -113,6 +113,14 @@ pub fn inspect(cert_pem: &str, key_pem: &str) -> Result<Parsed, ApiError> {
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/certificates",
+    operation_id = "certificates_list",
+    tag = "certificates",
+    summary = "List certificates",
+    responses((status = 200, description = "The certificates", body = Vec<CertificateView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(
     State(state): State<AppState>,
     _: Access,
@@ -121,6 +129,15 @@ pub async fn list(
     Ok(Json(all.into_iter().map(CertificateView::from).collect()))
 }
 
+#[utoipa::path(
+    post,
+    path = "/certificates",
+    operation_id = "certificates_create",
+    tag = "certificates",
+    summary = "Add a certificate",
+    request_body = CertificateInput,
+    responses((status = 201, description = "Added", body = CertificateView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create(
     State(state): State<AppState>,
     _: Access,
@@ -151,6 +168,15 @@ pub async fn create(
     Ok((StatusCode::CREATED, audit, Json(certificate.into())))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/certificates/{id}",
+    operation_id = "certificates_delete",
+    tag = "certificates",
+    summary = "Delete a certificate",
+    params(("id" = i64, Path, description = "the certificate's id")),
+    responses((status = 204, description = "Deleted"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete(
     State(state): State<AppState>,
     _: Access,

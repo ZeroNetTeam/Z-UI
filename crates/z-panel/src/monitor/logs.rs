@@ -28,7 +28,7 @@ pub const KEEP: usize = 2000;
 /// Longest message kept, so one runaway line cannot fill the ring.
 const MAX_MESSAGE: usize = 2000;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, utoipa::ToSchema)]
 pub struct Record {
     /// Rises with every record, so a client can tell what it has seen.
     pub id: u64,

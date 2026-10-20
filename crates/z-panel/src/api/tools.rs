@@ -10,18 +10,19 @@ use rustls_pki_types::ServerName;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::Access;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 
 const TIMEOUT: Duration = Duration::from_secs(6);
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct RealityQuery {
     /// `example.com` or `example.com:443`.
     target: String,
 }
 
 /// Whether a site can be a REALITY target: what a good one offers.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RealityCheck {
     target: String,
     /// It answered TLS 1.3, which REALITY needs.
@@ -40,6 +41,15 @@ pub struct RealityCheck {
 }
 
 /// Connect to `target` as a browser would and report how it answered.
+#[utoipa::path(
+    get,
+    path = "/tools/reality-check",
+    operation_id = "tools_reality_check",
+    tag = "tools",
+    summary = "Whether a site can be a REALITY target",
+    params(RealityQuery),
+    responses((status = 200, description = "How it answered", body = RealityCheck), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn reality_check(
     _: Access,
     Query(query): Query<RealityQuery>,
@@ -146,17 +156,27 @@ fn public(ip: IpAddr) -> bool {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct QrQuery {
     text: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Qr {
     svg: String,
 }
 
 /// A QR code of `text` (a config link), as SVG, for the dashboard to show.
+#[utoipa::path(
+    get,
+    path = "/tools/qr",
+    operation_id = "tools_qr",
+    tag = "tools",
+    summary = "A QR code for some text",
+    params(QrQuery),
+    responses((status = 200, description = "An SVG document", body = Qr), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn qr(_: Access, Query(query): Query<QrQuery>) -> ApiResult<Json<Qr>> {
     if query.text.is_empty() || query.text.len() > 2048 {
         return Err(ApiError::bad_request(

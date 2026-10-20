@@ -305,6 +305,51 @@ impl Need {
         }
     }
 
+    /// What a call needs, in words, for the API's documentation.
+    fn requirement(self, method: &axum::http::Method) -> Option<String> {
+        let level = |section: Section, level: Level| format!("{}.{}", section.name(), level.name());
+        match self {
+            Need::Signed => None,
+            Need::Session => Some("session".into()),
+            Need::Section(section) => Some(level(section, Level::of_method(method))),
+            Need::SessionSection(section) => Some(format!(
+                "session + {}",
+                level(section, Level::of_method(method))
+            )),
+            Need::Exactly(section, wanted) => Some(level(section, wanted)),
+            Need::Sudo => Some("sudo".into()),
+        }
+    }
+
+    /// Say in `api` what every operation in it needs: in the description,
+    /// and as `x-permission` for tools to read.
+    pub fn document(self, api: &mut utoipa::openapi::OpenApi) {
+        use axum::http::Method;
+        for item in api.paths.paths.values_mut() {
+            let operations = [
+                (Method::GET, &mut item.get),
+                (Method::PUT, &mut item.put),
+                (Method::POST, &mut item.post),
+                (Method::DELETE, &mut item.delete),
+                (Method::PATCH, &mut item.patch),
+            ];
+            for (method, operation) in operations {
+                let (Some(operation), Some(needs)) = (operation, self.requirement(&method)) else {
+                    continue;
+                };
+                operation
+                    .extensions
+                    .get_or_insert_with(Default::default)
+                    .insert("x-permission".into(), needs.clone().into());
+                let first = format!("**Needs:** `{needs}`.");
+                operation.description = Some(match operation.description.take() {
+                    Some(text) if !text.is_empty() => format!("{first}\n\n{text}"),
+                    _ => first,
+                });
+            }
+        }
+    }
+
     /// Whether what this route does is not worth a line in the audit log.
     fn quiet(self) -> bool {
         matches!(self, Need::Exactly(_, Level::Read))

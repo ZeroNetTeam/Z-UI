@@ -11,13 +11,13 @@ use crate::audit::Audit;
 use crate::auth::keys;
 use crate::auth::permissions::Permissions;
 use crate::auth::Access;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 
 /// Most keys one admin may have.
 const MAX_KEYS: usize = 50;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct KeyView {
     id: i64,
     name: String,
@@ -64,6 +64,14 @@ impl From<z_db::ApiKey> for KeyView {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api-keys",
+    operation_id = "api_keys_list",
+    tag = "api-keys",
+    summary = "List my API keys",
+    responses((status = 200, description = "My keys, without their secrets", body = Vec<KeyView>), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn list(State(state): State<AppState>, access: Access) -> ApiResult<Json<Vec<KeyView>>> {
     access.require_session()?;
     Ok(Json(
@@ -78,14 +86,14 @@ pub async fn list(State(state): State<AppState>, access: Access) -> ApiResult<Js
 }
 
 /// What a key may do: all its admin may, or a list of permissions.
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(untagged)]
 pub enum Scope {
     All(String),
     Only(Vec<String>),
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct KeyInput {
     name: String,
     /// `"*"`, or a list such as `["users.read", "hosts.write"]`.
@@ -95,7 +103,7 @@ pub struct KeyInput {
     expires_at: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Created {
     /// The key itself, which is shown this once and kept nowhere.
     key: String,
@@ -103,6 +111,15 @@ pub struct Created {
     info: KeyView,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api-keys",
+    operation_id = "api_keys_create",
+    tag = "api-keys",
+    summary = "Make an API key",
+    request_body = KeyInput,
+    responses((status = 201, description = "Made: `key` is shown this once", body = Created), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create(
     State(state): State<AppState>,
     access: Access,
@@ -180,6 +197,15 @@ pub async fn create(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api-keys/{id}",
+    operation_id = "api_keys_delete",
+    tag = "api-keys",
+    summary = "Revoke an API key",
+    params(("id" = i64, Path, description = "the key's id")),
+    responses((status = 204, description = "Revoked"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn delete(
     State(state): State<AppState>,
     access: Access,

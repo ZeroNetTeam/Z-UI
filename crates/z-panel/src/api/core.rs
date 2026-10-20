@@ -13,10 +13,10 @@ use crate::audit::Audit;
 use crate::auth::Access;
 use crate::core_config::{self, Warning};
 use crate::core_settings::{self, IranOptions};
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::server::AppState;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct InboundName {
     tag: String,
     remark: String,
@@ -24,7 +24,7 @@ pub struct InboundName {
     protocol: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct CoreView {
     /// What is in force now: the stored document, or the default.
     settings: Value,
@@ -40,6 +40,14 @@ pub struct CoreView {
     asset_files: Value,
 }
 
+#[utoipa::path(
+    get,
+    path = "/core",
+    operation_id = "core_get",
+    tag = "core",
+    summary = "Read the core's settings",
+    responses((status = 200, description = "The settings and the inbounds", body = CoreView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn get(State(state): State<AppState>, _: Access) -> ApiResult<Json<CoreView>> {
     let inbounds = state
         .db()
@@ -63,18 +71,27 @@ pub async fn get(State(state): State<AppState>, _: Access) -> ApiResult<Json<Cor
     }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct SettingsInput {
     settings: Value,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Checked {
     warnings: Vec<Warning>,
 }
 
 /// Whether the core would take `settings`, without applying or storing
 /// them; what it accepts but does not act on comes back as warnings.
+#[utoipa::path(
+    post,
+    path = "/core/validate",
+    operation_id = "core_validate",
+    tag = "core",
+    summary = "Check settings without applying them",
+    request_body = SettingsInput,
+    responses((status = 200, description = "Warnings, if any", body = Checked), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn validate(
     State(state): State<AppState>,
     _: Access,
@@ -85,7 +102,7 @@ pub async fn validate(
     Ok(Json(Checked { warnings }))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Saved {
     settings: Value,
     applied: Applied,
@@ -94,6 +111,15 @@ pub struct Saved {
 
 /// Apply `settings` to the running core and, only if it takes them, store
 /// them.
+#[utoipa::path(
+    put,
+    path = "/core",
+    operation_id = "core_save",
+    tag = "core",
+    summary = "Apply and store the core's settings",
+    request_body = SettingsInput,
+    responses((status = 200, description = "Applied and stored", body = Saved), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn save(
     State(state): State<AppState>,
     _: Access,
@@ -114,7 +140,7 @@ pub async fn save(
     ))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct PresetInput {
     #[serde(default)]
     options: IranOptions,
@@ -123,7 +149,7 @@ pub struct PresetInput {
     current: Option<Value>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Proposed {
     settings: Value,
     warnings: Vec<Warning>,
@@ -132,6 +158,15 @@ pub struct Proposed {
 /// The settings the Iran preset makes, for the admin to look at and apply.
 /// Nothing is stored or applied here; what it proposes is checked, so the
 /// admin sees any warning before applying.
+#[utoipa::path(
+    post,
+    path = "/core/presets/iran",
+    operation_id = "core_iran_preset",
+    tag = "core",
+    summary = "Propose the Iran preset",
+    request_body = PresetInput,
+    responses((status = 200, description = "Settings to look at; nothing is applied", body = Proposed), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn iran_preset(
     State(state): State<AppState>,
     _: Access,
@@ -148,12 +183,12 @@ pub async fn iran_preset(
     Ok(Json(Proposed { settings, warnings }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct LinkInput {
     link: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct LinkInfo {
     /// The name in the link.
     remark: String,
@@ -162,6 +197,15 @@ pub struct LinkInfo {
 }
 
 /// Whether `link` is a share link the core can use as an outbound.
+#[utoipa::path(
+    post,
+    path = "/core/check-link",
+    operation_id = "core_check_link",
+    tag = "core",
+    summary = "Check a share link",
+    request_body = LinkInput,
+    responses((status = 200, description = "What the link is", body = LinkInfo), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn check_link(_: Access, Json(input): Json<LinkInput>) -> ApiResult<Json<LinkInfo>> {
     let link = input.link.trim();
     let parsed = zero_config::parse_link(link)
@@ -175,7 +219,7 @@ pub async fn check_link(_: Access, Json(input): Json<LinkInput>) -> ApiResult<Js
     }))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct WarpAccount {
     /// A `warp://` link the core takes as an outbound.
     link: String,
@@ -184,6 +228,14 @@ pub struct WarpAccount {
 /// Make a Cloudflare WARP account: the keys are made here and only their
 /// public halves are sent. This asks Cloudflare's API from the server, so it
 /// can fail where that is filtered.
+#[utoipa::path(
+    post,
+    path = "/core/warp",
+    operation_id = "core_create_warp",
+    tag = "core",
+    summary = "Make a Cloudflare WARP account",
+    responses((status = 200, description = "A `warp://` link", body = WarpAccount), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn create_warp(_: Access) -> ApiResult<(Audit, Json<WarpAccount>)> {
     let api = zero_discovery::warp::Api::direct();
     let link = zero_discovery::warp::register_with(&api, &|_| {})
@@ -193,11 +245,27 @@ pub async fn create_warp(_: Access) -> ApiResult<(Audit, Json<WarpAccount>)> {
     Ok((Audit::new("core.warp", ""), Json(WarpAccount { link })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/core/geodata",
+    operation_id = "core_geodata",
+    tag = "core",
+    summary = "The geosite and geoip lists the core has",
+    responses((status = 200, description = "Their state, or null when the core is stopped", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn geodata(State(state): State<AppState>, _: Access) -> Json<Option<Value>> {
     Json(state.node().assets().await)
 }
 
 /// Fetch the geosite and geoip lists now.
+#[utoipa::path(
+    post,
+    path = "/core/geodata/refresh",
+    operation_id = "core_refresh_geodata",
+    tag = "core",
+    summary = "Fetch the geo lists now",
+    responses((status = 200, description = "What was fetched", body = Object), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+)]
 pub async fn refresh_geodata(
     State(state): State<AppState>,
     _: Access,
