@@ -5,7 +5,8 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::CurrentAdmin;
+use crate::audit::Audit;
+use crate::auth::Access;
 use crate::core_config;
 use crate::error::{ApiError, ApiResult};
 use crate::jobs::period_seconds;
@@ -32,13 +33,26 @@ pub struct GroupInput {
 
 pub async fn list(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
 ) -> ApiResult<Json<Vec<GroupView>>> {
     let groups = state.db().access_groups().await?;
-    let users = state.db().all_users().await?;
+    // How many users are in a group is counted among the users this admin
+    // sees; an admin limited to some groups sees only those.
+    let users: Vec<_> = state
+        .db()
+        .all_users()
+        .await?
+        .into_iter()
+        .filter(|user| access.sees(user))
+        .collect();
     Ok(Json(
         groups
             .into_iter()
+            .filter(|g| {
+                access
+                    .group_scope()
+                    .is_none_or(|allowed| allowed.contains(&g.id))
+            })
             .map(|g| GroupView {
                 users: users.iter().filter(|u| u.group_ids.contains(&g.id)).count(),
                 id: g.id,
@@ -101,18 +115,20 @@ async fn save(state: &AppState, id: Option<i64>, input: GroupInput) -> ApiResult
 
 pub async fn create(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<GroupInput>,
-) -> ApiResult<(StatusCode, Json<GroupView>)> {
-    Ok((StatusCode::CREATED, Json(save(&state, None, input).await?)))
+) -> ApiResult<(StatusCode, Audit, Json<GroupView>)> {
+    let group = save(&state, None, input).await?;
+    let audit = Audit::new("group.create", &group.name);
+    Ok((StatusCode::CREATED, audit, Json(group)))
 }
 
 pub async fn update(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
     Json(input): Json<GroupInput>,
-) -> ApiResult<Json<GroupView>> {
+) -> ApiResult<(Audit, Json<GroupView>)> {
     if !state.db().access_groups().await?.iter().any(|g| g.id == id) {
         return Err(ApiError::new(
             StatusCode::NOT_FOUND,
@@ -120,15 +136,23 @@ pub async fn update(
             "there is no such group",
         ));
     }
-    Ok(Json(save(&state, Some(id), input).await?))
+    let group = save(&state, Some(id), input).await?;
+    Ok((Audit::new("group.update", &group.name), Json(group)))
 }
 
 pub async fn delete(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
-) -> ApiResult<StatusCode> {
+) -> ApiResult<(StatusCode, Audit, ())> {
     let _guard = state.core_lock().lock().await;
+    let name = state
+        .db()
+        .access_groups()
+        .await?
+        .into_iter()
+        .find(|g| g.id == id)
+        .map(|g| g.name);
     if !state.db().delete_access_group(id).await? {
         return Err(ApiError::new(
             StatusCode::NOT_FOUND,
@@ -138,7 +162,8 @@ pub async fn delete(
     }
     let inbounds = state.db().inbounds().await?;
     core_config::apply(&state, &inbounds).await?;
-    Ok(StatusCode::NO_CONTENT)
+    let audit = Audit::new("group.delete", name.unwrap_or_else(|| format!("#{id}")));
+    Ok((StatusCode::NO_CONTENT, audit, ()))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -190,7 +215,7 @@ impl From<z_db::UserTemplate> for TemplateView {
 
 pub async fn templates(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
 ) -> ApiResult<Json<Vec<TemplateView>>> {
     Ok(Json(
         state
@@ -199,6 +224,13 @@ pub async fn templates(
             .await?
             .into_iter()
             .map(TemplateView::from)
+            .map(|mut template| {
+                // An admin limited to some groups is shown only those.
+                if let Some(allowed) = access.group_scope() {
+                    template.group_ids.retain(|id| allowed.contains(id));
+                }
+                template
+            })
             .collect(),
     ))
 }
@@ -266,31 +298,42 @@ async fn save_template(state: &AppState, id: i64, input: TemplateView) -> ApiRes
 
 pub async fn create_template(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<TemplateView>,
-) -> ApiResult<(StatusCode, Json<TemplateView>)> {
-    Ok((
-        StatusCode::CREATED,
-        Json(save_template(&state, 0, input).await?),
-    ))
+) -> ApiResult<(StatusCode, Audit, Json<TemplateView>)> {
+    let template = save_template(&state, 0, input).await?;
+    let audit = Audit::new("template.create", &template.name);
+    Ok((StatusCode::CREATED, audit, Json(template)))
 }
 
 pub async fn update_template(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
     Json(input): Json<TemplateView>,
-) -> ApiResult<Json<TemplateView>> {
-    Ok(Json(save_template(&state, id, input).await?))
+) -> ApiResult<(Audit, Json<TemplateView>)> {
+    let template = save_template(&state, id, input).await?;
+    Ok((
+        Audit::new("template.update", &template.name),
+        Json(template),
+    ))
 }
 
 pub async fn delete_template(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
-) -> ApiResult<StatusCode> {
+) -> ApiResult<(StatusCode, Audit, ())> {
+    let name = state
+        .db()
+        .user_templates()
+        .await?
+        .into_iter()
+        .find(|t| t.id == id)
+        .map(|t| t.name);
     if state.db().delete_user_template(id).await? {
-        Ok(StatusCode::NO_CONTENT)
+        let audit = Audit::new("template.delete", name.unwrap_or_else(|| format!("#{id}")));
+        Ok((StatusCode::NO_CONTENT, audit, ()))
     } else {
         Err(ApiError::new(
             StatusCode::NOT_FOUND,

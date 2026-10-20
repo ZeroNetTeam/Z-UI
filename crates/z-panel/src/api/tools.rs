@@ -9,7 +9,7 @@ use axum::Json;
 use rustls_pki_types::ServerName;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::CurrentAdmin;
+use crate::auth::Access;
 use crate::error::{ApiError, ApiResult};
 
 const TIMEOUT: Duration = Duration::from_secs(6);
@@ -41,7 +41,7 @@ pub struct RealityCheck {
 
 /// Connect to `target` as a browser would and report how it answered.
 pub async fn reality_check(
-    _: CurrentAdmin,
+    _: Access,
     Query(query): Query<RealityQuery>,
 ) -> ApiResult<Json<RealityCheck>> {
     let target = query.target.trim().to_ascii_lowercase();
@@ -157,7 +157,7 @@ pub struct Qr {
 }
 
 /// A QR code of `text` (a config link), as SVG, for the dashboard to show.
-pub async fn qr(_: CurrentAdmin, Query(query): Query<QrQuery>) -> ApiResult<Json<Qr>> {
+pub async fn qr(_: Access, Query(query): Query<QrQuery>) -> ApiResult<Json<Qr>> {
     if query.text.is_empty() || query.text.len() > 2048 {
         return Err(ApiError::bad_request(
             "invalid_text",

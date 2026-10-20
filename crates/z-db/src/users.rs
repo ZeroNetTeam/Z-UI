@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use sqlx::any::AnyRow;
 use sqlx::Row;
 
-use crate::{now, Database, DbError};
+use crate::{ids_text, now, parse_ids, Database, DbError};
 
 /// A user as stored, with the access groups it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +79,8 @@ pub struct UserQuery {
     pub search: Option<String>,
     pub status: Option<String>,
     pub group_id: Option<i64>,
+    /// Only the users this admin owns.
+    pub owner: Option<i64>,
     pub offset: i64,
     pub limit: i64,
 }
@@ -178,19 +180,9 @@ fn template(row: AnyRow) -> Result<UserTemplate, sqlx::Error> {
         speed_up: row.try_get("speed_up")?,
         speed_down: row.try_get("speed_down")?,
         hwid_limit: row.try_get("hwid_limit")?,
-        group_ids: ids
-            .split(',')
-            .filter_map(|id| id.trim().parse().ok())
-            .collect(),
+        group_ids: parse_ids(&ids),
         created_at: row.try_get("created_at")?,
     })
-}
-
-fn ids_text(ids: &[i64]) -> String {
-    ids.iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(",")
 }
 
 /// One user's bytes over a stretch of time.
@@ -293,27 +285,31 @@ impl Database {
         let filter = concat!(
             " WHERE ($1 = '' OR LOWER(username) LIKE $1 OR LOWER(note) LIKE $1)",
             " AND ($2 = '' OR status = $2)",
-            " AND ($3 = 0 OR id IN (SELECT user_id FROM user_access_groups WHERE group_id = $3))"
+            " AND ($3 = 0 OR id IN (SELECT user_id FROM user_access_groups WHERE group_id = $3))",
+            " AND ($4 = 0 OR admin_id = $4)"
         );
         let search = search.unwrap_or_default();
         let status = query.status.clone().unwrap_or_default();
         let group = query.group_id.unwrap_or(0);
+        let owner = query.owner.unwrap_or(0);
         let total: i64 = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT COUNT(*) FROM users{filter}"
         )))
         .bind(&search)
         .bind(&status)
         .bind(group)
+        .bind(owner)
         .fetch_one(self.pool())
         .await?
         .try_get(0)?;
         let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT {} FROM users{filter} ORDER BY id DESC LIMIT $4 OFFSET $5",
+            "SELECT {} FROM users{filter} ORDER BY id DESC LIMIT $5 OFFSET $6",
             user_columns!()
         )))
         .bind(&search)
         .bind(&status)
         .bind(group)
+        .bind(owner)
         .bind(query.limit.clamp(1, 500))
         .bind(query.offset.max(0))
         .fetch_all(self.pool())
@@ -621,15 +617,23 @@ impl Database {
             .map_err(DbError::from)
     }
 
-    /// Every user's bytes added up, hour by hour, since `since`.
-    pub async fn total_usage(&self, since: i64) -> Result<Vec<UsagePoint>, DbError> {
+    /// Every user's bytes added up, hour by hour, since `since`; only the
+    /// users `owner` owns, if given.
+    pub async fn total_usage(
+        &self,
+        since: i64,
+        owner: Option<i64>,
+    ) -> Result<Vec<UsagePoint>, DbError> {
         // A sum of bigints is a numeric in Postgres, which the Any driver
         // cannot read as an integer.
         let rows = sqlx::query(concat!(
             "SELECT hour, CAST(SUM(uplink) AS BIGINT) AS uplink, CAST(SUM(downlink) AS BIGINT) AS downlink ",
-            "FROM user_usage WHERE hour >= $1 GROUP BY hour ORDER BY hour"
+            "FROM user_usage WHERE hour >= $1 ",
+            "AND ($2 = 0 OR user_id IN (SELECT id FROM users WHERE admin_id = $2)) ",
+            "GROUP BY hour ORDER BY hour"
         ))
         .bind(since)
+        .bind(owner.unwrap_or(0))
         .fetch_all(self.pool())
         .await?;
         rows.into_iter()
@@ -644,16 +648,24 @@ impl Database {
             .map_err(DbError::from)
     }
 
-    /// The users who moved the most since `since`, biggest first.
-    pub async fn top_usage(&self, since: i64, limit: i64) -> Result<Vec<UserUsage>, DbError> {
+    /// The users who moved the most since `since`, biggest first; only the
+    /// users `owner` owns, if given.
+    pub async fn top_usage(
+        &self,
+        since: i64,
+        limit: i64,
+        owner: Option<i64>,
+    ) -> Result<Vec<UserUsage>, DbError> {
         let rows = sqlx::query(concat!(
             "SELECT u.id AS id, u.username AS username, ",
             "CAST(SUM(w.uplink) AS BIGINT) AS uplink, CAST(SUM(w.downlink) AS BIGINT) AS downlink ",
             "FROM user_usage w JOIN users u ON u.id = w.user_id WHERE w.hour >= $1 ",
+            "AND ($3 = 0 OR u.admin_id = $3) ",
             "GROUP BY u.id, u.username ORDER BY SUM(w.uplink) + SUM(w.downlink) DESC LIMIT $2"
         ))
         .bind(since)
         .bind(limit)
+        .bind(owner.unwrap_or(0))
         .fetch_all(self.pool())
         .await?;
         rows.into_iter()
@@ -669,11 +681,14 @@ impl Database {
             .map_err(DbError::from)
     }
 
-    /// Everything every user has ever moved.
-    pub async fn lifetime_total(&self) -> Result<i64, DbError> {
-        let row = sqlx::query(
-            "SELECT CAST(COALESCE(SUM(lifetime_traffic), 0) AS BIGINT) AS total FROM users",
-        )
+    /// Everything every user has ever moved; only the users `owner` owns,
+    /// if given.
+    pub async fn lifetime_total(&self, owner: Option<i64>) -> Result<i64, DbError> {
+        let row = sqlx::query(concat!(
+            "SELECT CAST(COALESCE(SUM(lifetime_traffic), 0) AS BIGINT) AS total FROM users ",
+            "WHERE ($1 = 0 OR admin_id = $1)"
+        ))
+        .bind(owner.unwrap_or(0))
         .fetch_one(self.pool())
         .await?;
         Ok(row.try_get("total")?)
@@ -689,11 +704,15 @@ impl Database {
             .rows_affected())
     }
 
-    /// How many users there are in each status.
-    pub async fn user_counts(&self) -> Result<HashMap<String, i64>, DbError> {
-        let rows = sqlx::query("SELECT status, COUNT(*) AS n FROM users GROUP BY status")
-            .fetch_all(self.pool())
-            .await?;
+    /// How many users there are in each status; only the users `owner`
+    /// owns, if given.
+    pub async fn user_counts(&self, owner: Option<i64>) -> Result<HashMap<String, i64>, DbError> {
+        let rows = sqlx::query(
+            "SELECT status, COUNT(*) AS n FROM users WHERE ($1 = 0 OR admin_id = $1) GROUP BY status",
+        )
+        .bind(owner.unwrap_or(0))
+        .fetch_all(self.pool())
+        .await?;
         rows.into_iter()
             .map(|row| Ok((row.try_get("status")?, row.try_get("n")?)))
             .collect::<Result<_, sqlx::Error>>()

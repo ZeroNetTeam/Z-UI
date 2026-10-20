@@ -7,13 +7,19 @@
 //! no-ops once applied.
 
 mod admins;
+mod api_keys;
+mod audit;
 mod certificates;
 mod inbounds;
+mod roles;
 mod users;
 
-pub use admins::Admin;
+pub use admins::{plan_peak, Admin, AdminFields, Holdings};
+pub use api_keys::ApiKey;
+pub use audit::{AuditEntry, AuditQuery, NewAudit};
 pub use certificates::Certificate;
 pub use inbounds::{Host, HostFields, Inbound, InboundFields};
+pub use roles::{Role, DEFAULT_ROLES};
 pub use users::{
     AccessGroup, Device, DeviceFields, NextPlan, TrafficDelta, UsagePoint, User, UserFields,
     UserQuery, UserTemplate, UserUsage,
@@ -43,6 +49,21 @@ pub fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
+}
+
+/// Ids as the comma-separated text a column keeps them in.
+pub(crate) fn ids_text(ids: &[i64]) -> String {
+    ids.iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The ids in such text; anything else in it is ignored.
+pub(crate) fn parse_ids(text: &str) -> Vec<i64> {
+    text.split(',')
+        .filter_map(|id| id.trim().parse().ok())
+        .collect()
 }
 
 impl Database {
@@ -76,7 +97,9 @@ impl Database {
         } else {
             sqlx::migrate!("./migrations/postgres").run(&pool).await?;
         }
-        Ok(Self { pool })
+        let db = Self { pool };
+        db.seed_roles().await?;
+        Ok(db)
     }
 
     /// The pool, for the panel's own queries.
@@ -205,6 +228,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_owner_filter_narrows_lists_counts_and_traffic() {
+        let dir = std::env::temp_dir().join(format!("z-db-owners-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Database::open(&format!("sqlite://{}/panel.db", dir.display()))
+            .await
+            .unwrap();
+        let mine = db.create_admin("mine", "h", false).await.unwrap();
+        let theirs = db.create_admin("theirs", "h", false).await.unwrap();
+        let mut ids = Vec::new();
+        for (name, owner) in [
+            ("a1", Some(mine.id)),
+            ("a2", Some(mine.id)),
+            ("b1", Some(theirs.id)),
+            ("c1", None),
+        ] {
+            let fields = crate::UserFields {
+                username: name.into(),
+                status: "active".into(),
+                reset_strategy: "no_reset".into(),
+                ..Default::default()
+            };
+            ids.push(
+                db.create_user(&fields, name, name, name, owner)
+                    .await
+                    .unwrap()
+                    .id,
+            );
+        }
+        for (id, bytes) in ids.iter().zip([10, 20, 400, 8000]) {
+            db.add_traffic(&[crate::TrafficDelta {
+                user_id: *id,
+                uplink: bytes,
+                downlink: 0,
+            }])
+            .await
+            .unwrap();
+        }
+        let query = |owner| crate::UserQuery {
+            owner,
+            limit: 50,
+            ..Default::default()
+        };
+        assert_eq!(db.users(&query(None)).await.unwrap().1, 4);
+        let (found, total) = db.users(&query(Some(mine.id))).await.unwrap();
+        assert_eq!((found.len(), total), (2, 2));
+        assert!(found.iter().all(|u| u.admin_id == Some(mine.id)));
+        assert_eq!(db.users(&query(Some(999))).await.unwrap().1, 0);
+
+        assert_eq!(db.user_counts(None).await.unwrap()["active"], 4);
+        assert_eq!(db.user_counts(Some(mine.id)).await.unwrap()["active"], 2);
+        assert_eq!(db.lifetime_total(None).await.unwrap(), 8430);
+        assert_eq!(db.lifetime_total(Some(mine.id)).await.unwrap(), 30);
+        let hours = db.total_usage(0, Some(mine.id)).await.unwrap();
+        assert_eq!(hours.iter().map(|h| h.uplink).sum::<i64>(), 30);
+        let top = db.top_usage(0, 5, Some(theirs.id)).await.unwrap();
+        assert_eq!(top.len(), 1);
+        assert_eq!(top[0].username, "b1");
+        assert_eq!(db.top_usage(0, 5, None).await.unwrap()[0].username, "c1");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
     async fn users_groups_traffic_and_templates() {
         let dir = std::env::temp_dir().join(format!("z-db-users-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -258,6 +343,7 @@ mod tests {
             group_id: Some(group),
             offset: 0,
             limit: 50,
+            owner: None,
         };
         let (found, total) = db.users(&page("", "", 0)).await.unwrap();
         assert_eq!((found.len(), total), (2, 2));
@@ -305,23 +391,23 @@ mod tests {
         }])
         .await
         .unwrap();
-        let total = db.total_usage(0).await.unwrap();
+        let total = db.total_usage(0, None).await.unwrap();
         assert_eq!(total.len(), 1, "both users moved in this hour");
         assert_eq!((total[0].uplink, total[0].downlink), (1301, 2402));
-        let top = db.top_usage(0, 5).await.unwrap();
+        let top = db.top_usage(0, 5, None).await.unwrap();
         assert_eq!(
             top.iter()
                 .map(|u| (u.username.as_str(), u.uplink + u.downlink))
                 .collect::<Vec<_>>(),
             [("bob", 3000), ("alice", 703)]
         );
-        assert_eq!(db.top_usage(0, 1).await.unwrap().len(), 1);
-        assert_eq!(db.lifetime_total().await.unwrap(), 703 + 3000);
+        assert_eq!(db.top_usage(0, 1, None).await.unwrap().len(), 1);
+        assert_eq!(db.lifetime_total(None).await.unwrap(), 703 + 3000);
         assert_eq!(db.prune_usage(0).await.unwrap(), 0);
         assert_eq!(db.prune_usage(i64::MAX).await.unwrap(), 2);
-        assert!(db.total_usage(0).await.unwrap().is_empty());
+        assert!(db.total_usage(0, None).await.unwrap().is_empty());
         assert_eq!(
-            db.lifetime_total().await.unwrap(),
+            db.lifetime_total(None).await.unwrap(),
             3703,
             "lifetime totals outlive the hourly rows"
         );
@@ -329,7 +415,10 @@ mod tests {
             db.user_by_token("token-a").await.unwrap().unwrap().id,
             alice.id
         );
-        assert_eq!(db.user_counts().await.unwrap().get("disabled"), Some(&1));
+        assert_eq!(
+            db.user_counts(None).await.unwrap().get("disabled"),
+            Some(&1)
+        );
 
         let template = crate::UserTemplate {
             name: "30 days".into(),

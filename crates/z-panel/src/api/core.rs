@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use z_common::node::Applied;
 
-use crate::auth::CurrentAdmin;
+use crate::audit::Audit;
+use crate::auth::Access;
 use crate::core_config::{self, Warning};
 use crate::core_settings::{self, IranOptions};
 use crate::error::{ApiError, ApiResult};
@@ -39,7 +40,7 @@ pub struct CoreView {
     asset_files: Value,
 }
 
-pub async fn get(State(state): State<AppState>, _: CurrentAdmin) -> ApiResult<Json<CoreView>> {
+pub async fn get(State(state): State<AppState>, _: Access) -> ApiResult<Json<CoreView>> {
     let inbounds = state
         .db()
         .inbounds()
@@ -76,7 +77,7 @@ pub struct Checked {
 /// them; what it accepts but does not act on comes back as warnings.
 pub async fn validate(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<SettingsInput>,
 ) -> ApiResult<Json<Checked>> {
     let inbounds = state.db().inbounds().await?;
@@ -95,19 +96,22 @@ pub struct Saved {
 /// them.
 pub async fn save(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<SettingsInput>,
-) -> ApiResult<Json<Saved>> {
+) -> ApiResult<(Audit, Json<Saved>)> {
     let _guard = state.core_lock().lock().await;
     let inbounds = state.db().inbounds().await?;
     let (applied, warnings) = core_config::apply_with(&state, &inbounds, &input.settings).await?;
     core_settings::save(state.db(), &input.settings).await?;
     tracing::info!(?applied, "the core's settings were changed");
-    Ok(Json(Saved {
-        settings: input.settings,
-        applied,
-        warnings,
-    }))
+    Ok((
+        Audit::new("core.save", "settings"),
+        Json(Saved {
+            settings: input.settings,
+            applied,
+            warnings,
+        }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -130,7 +134,7 @@ pub struct Proposed {
 /// admin sees any warning before applying.
 pub async fn iran_preset(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<PresetInput>,
 ) -> ApiResult<Json<Proposed>> {
     let current = match input.current {
@@ -158,10 +162,7 @@ pub struct LinkInfo {
 }
 
 /// Whether `link` is a share link the core can use as an outbound.
-pub async fn check_link(
-    _: CurrentAdmin,
-    Json(input): Json<LinkInput>,
-) -> ApiResult<Json<LinkInfo>> {
+pub async fn check_link(_: Access, Json(input): Json<LinkInput>) -> ApiResult<Json<LinkInfo>> {
     let link = input.link.trim();
     let parsed = zero_config::parse_link(link)
         .map_err(|message| ApiError::bad_request("invalid_link", message))?;
@@ -183,26 +184,26 @@ pub struct WarpAccount {
 /// Make a Cloudflare WARP account: the keys are made here and only their
 /// public halves are sent. This asks Cloudflare's API from the server, so it
 /// can fail where that is filtered.
-pub async fn create_warp(_: CurrentAdmin) -> ApiResult<Json<WarpAccount>> {
+pub async fn create_warp(_: Access) -> ApiResult<(Audit, Json<WarpAccount>)> {
     let api = zero_discovery::warp::Api::direct();
     let link = zero_discovery::warp::register_with(&api, &|_| {})
         .await
         .map_err(|message| ApiError::bad_request("warp_failed", message))?;
     tracing::info!("a WARP account was made");
-    Ok(Json(WarpAccount { link }))
+    Ok((Audit::new("core.warp", ""), Json(WarpAccount { link })))
 }
 
-pub async fn geodata(State(state): State<AppState>, _: CurrentAdmin) -> Json<Option<Value>> {
+pub async fn geodata(State(state): State<AppState>, _: Access) -> Json<Option<Value>> {
     Json(state.node().assets().await)
 }
 
 /// Fetch the geosite and geoip lists now.
 pub async fn refresh_geodata(
     State(state): State<AppState>,
-    _: CurrentAdmin,
-) -> ApiResult<Json<Value>> {
+    _: Access,
+) -> ApiResult<(Audit, Json<Value>)> {
     match state.node().refresh_assets().await {
-        Some(report) => Ok(Json(report)),
+        Some(report) => Ok((Audit::new("core.geodata_refresh", ""), Json(report))),
         None => Err(ApiError::bad_request(
             "core_stopped",
             "the core is not running, so there is nothing to refresh",

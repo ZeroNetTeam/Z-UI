@@ -1,48 +1,23 @@
 //! Who is making a request, and whether they may.
 
+pub mod access;
+pub mod keys;
 pub mod password;
+pub mod permissions;
 pub mod rate_limit;
 pub mod session;
 pub mod totp;
 
 use std::net::{IpAddr, SocketAddr};
 
-use axum::extract::{ConnectInfo, FromRequestParts, Request, State};
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{header, request::Parts, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
-use crate::error::ApiError;
 use crate::server::AppState;
 
-/// The admin a request is signed in as. Using it as an extractor makes a
-/// handler require a valid session.
-#[derive(Debug, Clone)]
-pub struct CurrentAdmin(pub z_db::Admin);
-
-impl FromRequestParts<AppState> for CurrentAdmin {
-    type Rejection = ApiError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
-        let token = parts
-            .headers
-            .get(header::COOKIE)
-            .and_then(|value| value.to_str().ok())
-            .and_then(session::from_cookie_header)
-            .ok_or_else(ApiError::unauthorized)?;
-        let claims = state
-            .session_keys()
-            .verify(token)
-            .ok_or_else(ApiError::unauthorized)?;
-        let admin = state
-            .db()
-            .admin_by_id(claims.sub)
-            .await?
-            .filter(|admin| admin.token_version == claims.ver)
-            .ok_or_else(ApiError::unauthorized)?;
-        Ok(Self(admin))
-    }
-}
+pub use access::Access;
 
 /// The address a request came from (the TCP peer; a proxy in front is not
 /// trusted to say otherwise).

@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::auth::CurrentAdmin;
+use crate::audit::Audit;
+use crate::auth::Access;
 use crate::error::ApiResult;
 use crate::monitor::logs::{Filter, Record};
 use crate::monitor::system::{Point, Snapshot};
@@ -33,7 +34,7 @@ pub struct SystemView {
 
 pub async fn system(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Query(query): Query<SystemQuery>,
 ) -> Json<SystemView> {
     let minutes = query.minutes.unwrap_or(60).clamp(1, 24 * 60);
@@ -76,18 +77,20 @@ pub struct TrafficView {
     lifetime: i64,
 }
 
+/// What users moved: all of it, or for a reseller what their own users did.
 pub async fn traffic(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Query(query): Query<TrafficQuery>,
 ) -> ApiResult<Json<TrafficView>> {
     let days = query.days.unwrap_or(7).clamp(1, 366);
     let top = query.top.unwrap_or(5).clamp(0, 50);
     let since = z_db::now() - days * 86_400;
+    let owner = access.owner_scope();
     let db = state.db();
     Ok(Json(TrafficView {
         points: db
-            .total_usage(since)
+            .total_usage(since, owner)
             .await?
             .into_iter()
             .map(|p| UsagePoint {
@@ -97,7 +100,7 @@ pub async fn traffic(
             })
             .collect(),
         top: db
-            .top_usage(since, top)
+            .top_usage(since, top, owner)
             .await?
             .into_iter()
             .map(|u| TopUser {
@@ -107,7 +110,7 @@ pub async fn traffic(
                 downlink: u.downlink,
             })
             .collect(),
-        lifetime: db.lifetime_total().await?,
+        lifetime: db.lifetime_total(owner).await?,
     }))
 }
 
@@ -132,7 +135,7 @@ impl LogQuery {
 /// The latest records that pass the filter, oldest first.
 pub async fn logs(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Query(query): Query<LogQuery>,
 ) -> Json<Vec<Record>> {
     let limit = query.limit.unwrap_or(200).clamp(1, 2000);
@@ -155,7 +158,7 @@ pub struct LevelView {
     fixed: bool,
 }
 
-pub async fn level(State(state): State<AppState>, _: CurrentAdmin) -> Json<LevelView> {
+pub async fn level(State(state): State<AppState>, _: Access) -> Json<LevelView> {
     let (level, fixed) = state.monitor().logs.level();
     Json(LevelView { level, fixed })
 }
@@ -169,9 +172,9 @@ pub struct LevelInput {
 /// restart.
 pub async fn set_level(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<LevelInput>,
-) -> ApiResult<Json<LevelView>> {
+) -> ApiResult<(Audit, Json<LevelView>)> {
     state
         .monitor()
         .logs
@@ -182,7 +185,8 @@ pub async fn set_level(
         .set_setting(super::LOG_LEVEL_SETTING, &input.level)
         .await?;
     let (level, fixed) = state.monitor().logs.level();
-    Ok(Json(LevelView { level, fixed }))
+    let audit = Audit::new("logs.level", &level);
+    Ok((audit, Json(LevelView { level, fixed })))
 }
 
 fn event(record: &Record) -> Option<Event> {
@@ -196,7 +200,7 @@ fn event(record: &Record) -> Option<Event> {
 /// falls too far behind skips ahead rather than slowing the process.
 pub async fn stream(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Query(query): Query<LogQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let filter = query.filter();

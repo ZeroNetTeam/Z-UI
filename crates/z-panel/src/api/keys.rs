@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use zero_runtime::keys;
 
-use crate::auth::CurrentAdmin;
+use crate::auth::Access;
 use crate::error::{ApiError, ApiResult};
 
 #[derive(Deserialize)]
@@ -16,7 +16,7 @@ pub struct FromQuery {
     private: Option<String>,
 }
 
-pub async fn x25519(_: CurrentAdmin, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
+pub async fn x25519(_: Access, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
     let pair = match query.private.filter(|p| !p.is_empty()) {
         Some(private) => keys::x25519_from_private(&private)
             .map_err(|error| ApiError::bad_request("invalid_key", error))?,
@@ -27,7 +27,7 @@ pub async fn x25519(_: CurrentAdmin, Query(query): Query<FromQuery>) -> ApiResul
     ))
 }
 
-pub async fn wireguard(_: CurrentAdmin, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
+pub async fn wireguard(_: Access, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
     let pair = match query.private.filter(|p| !p.is_empty()) {
         Some(private) => keys::wireguard_from_private(&private)
             .map_err(|error| ApiError::bad_request("invalid_key", error))?,
@@ -38,7 +38,7 @@ pub async fn wireguard(_: CurrentAdmin, Query(query): Query<FromQuery>) -> ApiRe
     ))
 }
 
-pub async fn mldsa65(_: CurrentAdmin, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
+pub async fn mldsa65(_: Access, Query(query): Query<FromQuery>) -> ApiResult<Json<Value>> {
     let pair = match query.private.filter(|p| !p.is_empty()) {
         Some(seed) => keys::mldsa65_from_seed(&seed)
             .map_err(|error| ApiError::bad_request("invalid_key", error))?,
@@ -47,7 +47,7 @@ pub async fn mldsa65(_: CurrentAdmin, Query(query): Query<FromQuery>) -> ApiResu
     Ok(Json(json!({ "seed": pair.seed, "verify": pair.verify })))
 }
 
-pub async fn uuid(_: CurrentAdmin) -> Json<Value> {
+pub async fn uuid(_: Access) -> Json<Value> {
     Json(json!({ "uuid": keys::uuid() }))
 }
 
@@ -56,7 +56,7 @@ pub struct BytesQuery {
     bytes: Option<usize>,
 }
 
-pub async fn short_id(_: CurrentAdmin, Query(query): Query<BytesQuery>) -> ApiResult<Json<Value>> {
+pub async fn short_id(_: Access, Query(query): Query<BytesQuery>) -> ApiResult<Json<Value>> {
     let id = keys::short_id(query.bytes.unwrap_or(8))
         .map_err(|error| ApiError::bad_request("invalid_length", error))?;
     Ok(Json(json!({ "short_id": id })))
@@ -64,7 +64,7 @@ pub async fn short_id(_: CurrentAdmin, Query(query): Query<BytesQuery>) -> ApiRe
 
 /// A random secret; `bytes` 16 or 32 for a Shadowsocks 2022 key (then in
 /// standard base64, as that method wants).
-pub async fn password(_: CurrentAdmin, Query(query): Query<BytesQuery>) -> ApiResult<Json<Value>> {
+pub async fn password(_: Access, Query(query): Query<BytesQuery>) -> ApiResult<Json<Value>> {
     let bytes = query.bytes.unwrap_or(16);
     if !(8..=64).contains(&bytes) {
         return Err(ApiError::bad_request("invalid_length", "8 to 64 bytes"));
@@ -88,10 +88,7 @@ pub struct VlessEncryptionQuery {
     mlkem: bool,
 }
 
-pub async fn vless_encryption(
-    _: CurrentAdmin,
-    Query(query): Query<VlessEncryptionQuery>,
-) -> Json<Value> {
+pub async fn vless_encryption(_: Access, Query(query): Query<VlessEncryptionQuery>) -> Json<Value> {
     let (encryption, decryption) = keys::vless_encryption(query.mlkem, "native", "0rtt", "600s");
     Json(json!({ "encryption": encryption, "decryption": decryption }))
 }

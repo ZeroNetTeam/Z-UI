@@ -5,7 +5,8 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::CurrentAdmin;
+use crate::audit::Audit;
+use crate::auth::Access;
 use crate::error::{ApiError, ApiResult};
 use crate::server::AppState;
 
@@ -142,10 +143,7 @@ fn not_found() -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "not_found", "there is no such host")
 }
 
-pub async fn list(
-    State(state): State<AppState>,
-    _: CurrentAdmin,
-) -> ApiResult<Json<Vec<HostView>>> {
+pub async fn list(State(state): State<AppState>, _: Access) -> ApiResult<Json<Vec<HostView>>> {
     Ok(Json(
         state
             .db()
@@ -159,36 +157,46 @@ pub async fn list(
 
 pub async fn create(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<HostInput>,
-) -> ApiResult<(StatusCode, Json<HostView>)> {
+) -> ApiResult<(StatusCode, Audit, Json<HostView>)> {
     let (inbound_id, fields) = checked(&state, input).await?;
     let host = state.db().create_host(inbound_id, &fields).await?;
-    Ok((StatusCode::CREATED, Json(host.into())))
+    let audit = Audit::new("host.create", &host.fields.address);
+    Ok((StatusCode::CREATED, audit, Json(host.into())))
 }
 
 pub async fn update(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
     Json(input): Json<HostInput>,
-) -> ApiResult<Json<HostView>> {
+) -> ApiResult<(Audit, Json<HostView>)> {
     let (inbound_id, fields) = checked(&state, input).await?;
     let host = state
         .db()
         .update_host(id, inbound_id, &fields)
         .await?
         .ok_or_else(not_found)?;
-    Ok(Json(host.into()))
+    let audit = Audit::new("host.update", &host.fields.address);
+    Ok((audit, Json(host.into())))
 }
 
 pub async fn delete(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
-) -> ApiResult<StatusCode> {
+) -> ApiResult<(StatusCode, Audit, ())> {
+    let address = state
+        .db()
+        .hosts()
+        .await?
+        .into_iter()
+        .find(|host| host.id == id)
+        .map(|host| host.fields.address);
     if state.db().delete_host(id).await? {
-        Ok(StatusCode::NO_CONTENT)
+        let audit = Audit::new("host.delete", address.unwrap_or_else(|| format!("#{id}")));
+        Ok((StatusCode::NO_CONTENT, audit, ()))
     } else {
         Err(not_found())
     }

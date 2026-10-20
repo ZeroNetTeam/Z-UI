@@ -3,6 +3,7 @@
 mod accounts;
 mod api;
 mod assets;
+mod audit;
 mod auth;
 mod config;
 mod core_config;
@@ -10,6 +11,7 @@ mod core_settings;
 mod error;
 mod jobs;
 mod monitor;
+mod quota;
 mod server;
 mod subscription;
 mod tls;

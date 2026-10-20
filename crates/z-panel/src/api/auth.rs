@@ -1,6 +1,7 @@
 //! Signing in and out, the first-run setup, and an admin's own security:
 //! password and two-factor sign-in.
 
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use axum::extract::{FromRequestParts, State};
@@ -10,32 +11,77 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{client_address, is_secure, password, session, totp, CurrentAdmin};
+use crate::audit::{self, Actor, Audit};
+use crate::auth::access::{assemble, Access, Via};
+use crate::auth::{client_address, is_secure, password, session, totp};
 use crate::error::{ApiError, ApiResult};
 use crate::server::AppState;
 
 /// How long a 2FA secret shown for scanning waits for its confirming code.
 const PENDING_TOTP: Duration = Duration::from_secs(10 * 60);
 
-/// What the dashboard may know about an admin.
 #[derive(Debug, Serialize)]
-pub struct AdminView {
+pub struct RoleRef {
+    pub id: i64,
+    pub name: String,
+}
+
+/// What an admin has handed out and may still hand out.
+#[derive(Debug, Serialize)]
+pub struct Quota {
+    pub user_limit: i64,
+    pub data_quota: i64,
+    pub users: i64,
+    pub allocated: i64,
+    pub unlimited: i64,
+    pub used: i64,
+}
+
+/// What the dashboard may know about the admin using it: who, and what they
+/// may do, so it can show only that.
+#[derive(Debug, Serialize)]
+pub struct Me {
     pub id: i64,
     pub username: String,
     pub is_sudo: bool,
     pub totp_enabled: bool,
     pub last_login_at: Option<i64>,
+    pub role: Option<RoleRef>,
+    /// Every `<section>.<level>` they may use (a sudo admin has them all).
+    pub permissions: Vec<String>,
+    /// They see and change only the users they made.
+    pub own_users_only: bool,
+    /// The access groups they may give users; empty for every group.
+    pub group_ids: Vec<i64>,
+    pub quota: Quota,
 }
 
-impl From<&z_db::Admin> for AdminView {
-    fn from(admin: &z_db::Admin) -> Self {
-        Self {
+impl Me {
+    pub async fn build(state: &AppState, access: &Access) -> ApiResult<Self> {
+        let admin = &access.admin;
+        let held = state.db().holdings(admin.id).await?;
+        Ok(Self {
             id: admin.id,
             username: admin.username.clone(),
             is_sudo: admin.is_sudo,
             totp_enabled: admin.totp_secret.is_some(),
             last_login_at: admin.last_login_at,
-        }
+            role: access.role.as_ref().map(|role| RoleRef {
+                id: role.id,
+                name: role.name.clone(),
+            }),
+            permissions: access.permissions.names(),
+            own_users_only: access.own_users_only,
+            group_ids: admin.group_ids.clone(),
+            quota: Quota {
+                user_limit: admin.user_limit,
+                data_quota: admin.data_quota,
+                users: held.users,
+                allocated: held.allocated,
+                unlimited: held.unlimited,
+                used: held.used,
+            },
+        })
     }
 }
 
@@ -43,23 +89,30 @@ impl From<&z_db::Admin> for AdminView {
 pub struct AuthState {
     /// No admin exists yet: the setup page is the way in.
     setup_required: bool,
-    admin: Option<AdminView>,
+    admin: Option<Me>,
 }
 
 /// Where the dashboard should go: setup, sign-in, or in.
 pub async fn state(State(state): State<AppState>, mut parts: Parts) -> ApiResult<Json<AuthState>> {
     let setup_required = state.db().admin_count().await? == 0;
-    let admin = CurrentAdmin::from_request_parts(&mut parts, &state)
-        .await
-        .ok();
+    let access = Access::from_request_parts(&mut parts, &state).await.ok();
+    let admin = match access {
+        Some(access) => Some(Me::build(&state, &access).await?),
+        None => None,
+    };
     Ok(Json(AuthState {
         setup_required,
-        admin: admin.map(|CurrentAdmin(admin)| AdminView::from(&admin)),
+        admin,
     }))
 }
 
-/// A response that signs `admin` in.
-fn signed_in(state: &AppState, parts: &Parts, admin: &z_db::Admin) -> Response {
+/// A response that signs `admin` in, naming them as who did it.
+async fn signed_in(
+    state: &AppState,
+    parts: &Parts,
+    admin: &z_db::Admin,
+    action: &'static str,
+) -> ApiResult<Response> {
     let token = state
         .session_keys()
         .issue(admin.id, admin.token_version, totp::now());
@@ -72,7 +125,17 @@ fn signed_in(state: &AppState, parts: &Parts, admin: &z_db::Admin) -> Response {
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         headers.insert(header::SET_COOKIE, value);
     }
-    (headers, Json(AdminView::from(admin))).into_response()
+    let address = client_address(parts);
+    let access = assemble(state, admin.clone(), Via::Session, None, address).await?;
+    let me = Me::build(state, &access).await?;
+    let mut response = (headers, Json(me)).into_response();
+    response
+        .extensions_mut()
+        .insert(Actor::signing_in(Some(admin), address));
+    response
+        .extensions_mut()
+        .insert(Audit::new(action, &admin.username));
+    Ok(response)
 }
 
 #[derive(Deserialize)]
@@ -115,7 +178,7 @@ pub async fn setup(
     tracing::info!(username = %admin.username, "first admin created");
     state.db().touch_admin_login(admin.id).await?;
     let admin = refreshed(&state, admin.id).await?;
-    Ok(signed_in(&state, &parts, &admin))
+    signed_in(&state, &parts, &admin, "auth.setup").await
 }
 
 #[derive(Deserialize)]
@@ -125,6 +188,26 @@ pub struct LoginRequest {
     /// The authenticator's six digits, when 2FA is on.
     #[serde(default)]
     code: Option<String>,
+}
+
+/// Write a failed sign-in in the audit log. A name nobody has is not kept:
+/// it may well be a password typed into the wrong box.
+async fn failed_sign_in(
+    state: &AppState,
+    admin: Option<&z_db::Admin>,
+    address: IpAddr,
+    detail: &str,
+) {
+    let target = admin.map_or("(unknown user)", |admin| admin.username.as_str());
+    audit::write(
+        state,
+        &Actor::signing_in(admin, address),
+        "auth.login",
+        target,
+        detail,
+        401,
+    )
+    .await;
 }
 
 pub async fn login(
@@ -143,22 +226,30 @@ pub async fn login(
         error.retry_after = Some(seconds);
         return Err(error);
     }
-    let admin = state.db().admin_by_username(username).await?;
+    let found = state.db().admin_by_username(username).await?;
     // A missing user costs the same time as a wrong password.
-    let hash = match &admin {
+    let hash = match &found {
         Some(admin) => admin.password_hash.as_str(),
         None => password::decoy_hash().await,
     };
     let password_ok = password::verify(&request.password, hash).await;
-    let Some(admin) = admin.filter(|_| password_ok) else {
+    let Some(admin) = found.clone().filter(|_| password_ok) else {
         state.limiter().failed(address, username, Instant::now());
         tracing::warn!(%address, %username, "failed sign-in");
+        failed_sign_in(&state, found.as_ref(), address, "wrong password").await;
         return Err(ApiError::new(
             StatusCode::UNAUTHORIZED,
             "invalid_credentials",
             "wrong username or password",
         ));
     };
+    if !admin.enabled {
+        failed_sign_in(&state, Some(&admin), address, "account disabled").await;
+        return Err(ApiError::forbidden(
+            "account_disabled",
+            "this account is disabled; ask a sudo admin",
+        ));
+    }
     if let Some(secret) = &admin.totp_secret {
         let Some(code) = request
             .code
@@ -174,6 +265,7 @@ pub async fn login(
         };
         if !totp::verify(secret, code, totp::now()) {
             state.limiter().failed(address, username, Instant::now());
+            failed_sign_in(&state, Some(&admin), address, "wrong authenticator code").await;
             return Err(ApiError::new(
                 StatusCode::UNAUTHORIZED,
                 "totp_invalid",
@@ -185,7 +277,7 @@ pub async fn login(
     state.db().touch_admin_login(admin.id).await?;
     let admin = refreshed(&state, admin.id).await?;
     tracing::info!(%address, username = %admin.username, "signed in");
-    Ok(signed_in(&state, &parts, &admin))
+    signed_in(&state, &parts, &admin, "auth.login").await
 }
 
 pub async fn logout(State(state): State<AppState>, parts: Parts) -> Response {
@@ -200,8 +292,8 @@ pub async fn logout(State(state): State<AppState>, parts: Parts) -> Response {
     (headers, StatusCode::NO_CONTENT).into_response()
 }
 
-pub async fn me(CurrentAdmin(admin): CurrentAdmin) -> Json<AdminView> {
-    Json(AdminView::from(&admin))
+pub async fn me(State(state): State<AppState>, access: Access) -> ApiResult<Json<Me>> {
+    Ok(Json(Me::build(&state, &access).await?))
 }
 
 #[derive(Deserialize)]
@@ -214,10 +306,12 @@ pub struct PasswordRequest {
 /// one is renewed.
 pub async fn change_password(
     State(state): State<AppState>,
-    CurrentAdmin(admin): CurrentAdmin,
+    access: Access,
     parts: Parts,
     Json(request): Json<PasswordRequest>,
 ) -> ApiResult<Response> {
+    access.require_session()?;
+    let admin = access.admin;
     if !password::verify(&request.current, &admin.password_hash).await {
         return Err(ApiError::bad_request(
             "invalid_credentials",
@@ -228,7 +322,7 @@ pub async fn change_password(
     let hash = password::hash(&request.new).await?;
     state.db().set_admin_password(admin.id, &hash).await?;
     let admin = refreshed(&state, admin.id).await?;
-    Ok(signed_in(&state, &parts, &admin))
+    signed_in(&state, &parts, &admin, "auth.password").await
 }
 
 #[derive(Serialize)]
@@ -243,8 +337,10 @@ pub struct TotpSetup {
 /// code from it is confirmed ([`totp_enable`]).
 pub async fn totp_begin(
     State(state): State<AppState>,
-    CurrentAdmin(admin): CurrentAdmin,
-) -> ApiResult<Json<TotpSetup>> {
+    access: Access,
+) -> ApiResult<(Audit, Json<TotpSetup>)> {
+    access.require_session()?;
+    let admin = access.admin;
     if admin.totp_secret.is_some() {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
@@ -263,11 +359,14 @@ pub async fn totp_begin(
     state
         .pending_totp()
         .insert(admin.id, (secret.clone(), Instant::now()));
-    Ok(Json(TotpSetup {
-        secret,
-        otpauth,
-        qr_svg,
-    }))
+    Ok((
+        Audit::new("auth.2fa_begin", &admin.username),
+        Json(TotpSetup {
+            secret,
+            otpauth,
+            qr_svg,
+        }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -278,10 +377,12 @@ pub struct CodeRequest {
 /// Turn 2FA on with the secret from [`totp_begin`], proven by a code.
 pub async fn totp_enable(
     State(state): State<AppState>,
-    CurrentAdmin(admin): CurrentAdmin,
+    access: Access,
     parts: Parts,
     Json(request): Json<CodeRequest>,
 ) -> ApiResult<Response> {
+    access.require_session()?;
+    let admin = access.admin;
     let pending = state
         .pending_totp()
         .get(&admin.id)
@@ -298,7 +399,7 @@ pub async fn totp_enable(
     state.pending_totp().remove(&admin.id);
     tracing::info!(username = %admin.username, "two-factor sign-in turned on");
     let admin = refreshed(&state, admin.id).await?;
-    Ok(signed_in(&state, &parts, &admin))
+    signed_in(&state, &parts, &admin, "auth.2fa_enable").await
 }
 
 #[derive(Deserialize)]
@@ -311,10 +412,12 @@ pub struct DisableTotpRequest {
 /// session left open is not enough.
 pub async fn totp_disable(
     State(state): State<AppState>,
-    CurrentAdmin(admin): CurrentAdmin,
+    access: Access,
     parts: Parts,
     Json(request): Json<DisableTotpRequest>,
 ) -> ApiResult<Response> {
+    access.require_session()?;
+    let admin = access.admin;
     let Some(secret) = &admin.totp_secret else {
         return Err(ApiError::bad_request(
             "totp_disabled",
@@ -336,7 +439,7 @@ pub async fn totp_disable(
     state.db().set_admin_totp(admin.id, None).await?;
     tracing::info!(username = %admin.username, "two-factor sign-in turned off");
     let admin = refreshed(&state, admin.id).await?;
-    Ok(signed_in(&state, &parts, &admin))
+    signed_in(&state, &parts, &admin, "auth.2fa_disable").await
 }
 
 async fn refreshed(state: &AppState, id: i64) -> ApiResult<z_db::Admin> {

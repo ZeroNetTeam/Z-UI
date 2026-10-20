@@ -148,6 +148,12 @@ pub fn spawn(state: AppState) {
                     Ok(rows) => tracing::info!(rows, "old hourly usage was forgotten"),
                     Err(error) => tracing::warn!(%error, "old usage could not be pruned"),
                 }
+                let before = z_db::now() - crate::audit::RETENTION.as_secs() as i64;
+                match state.db().prune_audit(before).await {
+                    Ok(0) => {}
+                    Ok(rows) => tracing::info!(rows, "old audit entries were forgotten"),
+                    Err(error) => tracing::warn!(%error, "the audit log could not be pruned"),
+                }
             }
         }
     });

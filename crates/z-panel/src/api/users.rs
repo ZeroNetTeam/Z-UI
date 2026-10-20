@@ -9,9 +9,11 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::accounts;
-use crate::auth::CurrentAdmin;
+use crate::audit::Audit;
+use crate::auth::Access;
 use crate::error::{ApiError, ApiResult};
 use crate::jobs::{period_seconds, INTERVAL};
+use crate::quota;
 use crate::server::AppState;
 
 /// What the dashboard sees of a user.
@@ -44,6 +46,9 @@ pub struct UserView {
     uuid: String,
     password: String,
     sub_token: String,
+    /// The admin who owns the user, and their name.
+    admin_id: Option<i64>,
+    owner: Option<String>,
     created_at: i64,
     updated_at: i64,
 }
@@ -110,6 +115,8 @@ impl From<z_db::User> for UserView {
             uuid: u.uuid,
             password: u.password,
             sub_token: u.sub_token,
+            admin_id: u.admin_id,
+            owner: None,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }
@@ -261,6 +268,103 @@ fn not_found() -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "not_found", "there is no such user")
 }
 
+/// A user, if it exists and this admin may see it. One they may not see is
+/// reported as missing.
+pub async fn visible(state: &AppState, access: &Access, id: i64) -> ApiResult<z_db::User> {
+    state
+        .db()
+        .user(id)
+        .await?
+        .filter(|user| access.sees(user))
+        .ok_or_else(not_found)
+}
+
+/// A user as the dashboard sees it, with its owner's name.
+async fn view_of(state: &AppState, user: z_db::User) -> ApiResult<UserView> {
+    let owner = match user.admin_id {
+        Some(id) => state
+            .db()
+            .admin_by_id(id)
+            .await?
+            .map(|admin| admin.username),
+        None => None,
+    };
+    let mut view = UserView::from(user);
+    view.owner = owner;
+    Ok(view)
+}
+
+/// Keep to the groups this admin may give. Groups they may not give but a
+/// user already has stay as they are: they cannot see those to change them.
+fn restrict_groups(access: &Access, submitted: Vec<i64>, current: &[i64]) -> ApiResult<Vec<i64>> {
+    let Some(allowed) = access.group_scope() else {
+        return Ok(submitted);
+    };
+    if submitted
+        .iter()
+        .any(|id| !allowed.contains(id) && !current.contains(id))
+    {
+        return Err(ApiError::forbidden(
+            "group_not_allowed",
+            "you may not give users one of these groups",
+        ));
+    }
+    let mut merged: Vec<i64> = submitted
+        .into_iter()
+        .filter(|id| allowed.contains(id))
+        .chain(current.iter().copied().filter(|id| !allowed.contains(id)))
+        .collect();
+    merged.sort_unstable();
+    merged.dedup();
+    Ok(merged)
+}
+
+/// Hold the change to a user to its owner's quotas. A sudo admin is not
+/// held to any, nor is anyone changing a user that is not theirs.
+async fn check_quota(
+    state: &AppState,
+    access: &Access,
+    before: Option<&z_db::User>,
+    after_limit: i64,
+    after_plan: Option<z_db::NextPlan>,
+    count: i64,
+) -> ApiResult<()> {
+    let admin = &access.admin;
+    if admin.is_sudo || before.is_some_and(|user| user.admin_id != Some(admin.id)) {
+        return Ok(());
+    }
+    let limits = quota::Limits {
+        users: admin.user_limit,
+        data: admin.data_quota,
+    };
+    if limits.users == 0 && limits.data == 0 {
+        return Ok(());
+    }
+    let held = state.db().holdings(admin.id).await?;
+    let change = quota::Change {
+        before: match before {
+            Some(user) => quota::Before::Existing(z_db::plan_peak(user.data_limit, user.next_plan)),
+            None => quota::Before::New,
+        },
+        after: z_db::plan_peak(after_limit, after_plan),
+        count,
+    };
+    quota::check(limits, held, change).map_err(|refusal| match refusal {
+        quota::Refusal::UserLimit { limit } => ApiError::forbidden(
+            "user_limit_reached",
+            format!("you may own at most {limit} users"),
+        ),
+        quota::Refusal::Unlimited => ApiError::bad_request(
+            "quota_unlimited",
+            "give the user a data limit: your data quota counts it",
+        ),
+        quota::Refusal::Exceeded { left } => ApiError::forbidden(
+            "quota_exceeded",
+            format!("only {left} bytes are left of your data quota"),
+        ),
+    })
+}
+
 fn taken(username: &str) -> ApiError {
     ApiError::new(
         StatusCode::CONFLICT,
@@ -305,6 +409,8 @@ pub struct ListQuery {
     search: Option<String>,
     status: Option<String>,
     group: Option<i64>,
+    /// Only the users this admin owns.
+    owner: Option<i64>,
     #[serde(default)]
     offset: i64,
     limit: Option<i64>,
@@ -318,7 +424,7 @@ pub struct UserPage {
 
 pub async fn list(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Query(query): Query<ListQuery>,
 ) -> ApiResult<Json<UserPage>> {
     let (users, total) = state
@@ -327,54 +433,100 @@ pub async fn list(
             search: query.search,
             status: query.status.filter(|s| !s.is_empty()),
             group_id: query.group,
+            // A reseller is held to their own users; anyone else may ask for
+            // one admin's.
+            owner: access.owner_scope().or(query.owner),
             offset: query.offset,
             limit: query.limit.unwrap_or(25),
         })
         .await?;
+    let names: std::collections::HashMap<i64, String> = state
+        .db()
+        .admins()
+        .await?
+        .into_iter()
+        .map(|admin| (admin.id, admin.username))
+        .collect();
     Ok(Json(UserPage {
-        users: users.into_iter().map(UserView::from).collect(),
+        users: users
+            .into_iter()
+            .map(|user| {
+                let owner = user.admin_id.and_then(|id| names.get(&id).cloned());
+                let mut view = UserView::from(user);
+                view.owner = owner;
+                view
+            })
+            .collect(),
         total,
     }))
 }
 
 pub async fn get(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<UserView>> {
-    Ok(Json(
-        state.db().user(id).await?.ok_or_else(not_found)?.into(),
-    ))
+    let user = visible(&state, &access, id).await?;
+    Ok(Json(view_of(&state, user).await?))
 }
 
 pub async fn create(
     State(state): State<AppState>,
-    CurrentAdmin(admin): CurrentAdmin,
+    access: Access,
     Json(input): Json<UserInput>,
-) -> ApiResult<(StatusCode, Json<UserView>)> {
-    let fields = fields(&state, input).await?;
+) -> ApiResult<(StatusCode, Audit, Json<UserView>)> {
+    let mut fields = fields(&state, input).await?;
+    fields.group_ids = restrict_groups(&access, std::mem::take(&mut fields.group_ids), &[])?;
     let _guard = state.core_lock().lock().await;
+    check_quota(
+        &state,
+        &access,
+        None,
+        fields.data_limit,
+        fields.next_plan,
+        1,
+    )
+    .await?;
     let (uuid, password, token) = credentials();
     let user = state
         .db()
-        .create_user(&fields, &uuid, &password, &token, Some(admin.id))
+        .create_user(&fields, &uuid, &password, &token, Some(access.admin.id))
         .await
         .map_err(|_| taken(&fields.username))?;
     let user = settle(&state, user).await?;
     reach_core(&state, None, Some(&user)).await?;
     tracing::info!(user = %user.username, "user created");
-    Ok((StatusCode::CREATED, Json(user.into())))
+    let audit = Audit::new("user.create", &user.username);
+    Ok((
+        StatusCode::CREATED,
+        audit,
+        Json(view_of(&state, user).await?),
+    ))
 }
 
 pub async fn update(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
     Json(input): Json<UserInput>,
-) -> ApiResult<Json<UserView>> {
+) -> ApiResult<(Audit, Json<UserView>)> {
     let mut fields = fields(&state, input).await?;
     let _guard = state.core_lock().lock().await;
-    let before = state.db().user(id).await?.ok_or_else(not_found)?;
+    let before = visible(&state, &access, id).await?;
+    fields.group_ids = restrict_groups(
+        &access,
+        std::mem::take(&mut fields.group_ids),
+        &before.group_ids,
+    )?;
+    check_quota(
+        &state,
+        &access,
+        Some(&before),
+        fields.data_limit,
+        fields.next_plan,
+        1,
+    )
+    .await?;
     // An on-hold user whose time already started keeps its date.
     if fields.status == "on_hold" && before.status != "on_hold" && before.expire_at.is_some() {
         fields.status = "active".into();
@@ -394,45 +546,51 @@ pub async fn update(
         .ok_or_else(not_found)?;
     let after = settle(&state, after).await?;
     reach_core(&state, Some(&before), Some(&after)).await?;
-    Ok(Json(after.into()))
+    let audit = Audit::new("user.update", &after.username);
+    Ok((audit, Json(view_of(&state, after).await?)))
 }
 
 pub async fn delete(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
-) -> ApiResult<StatusCode> {
+) -> ApiResult<(StatusCode, Audit, ())> {
     let _guard = state.core_lock().lock().await;
-    let before = state.db().user(id).await?.ok_or_else(not_found)?;
+    let before = visible(&state, &access, id).await?;
     state.db().delete_user(id).await?;
     reach_core(&state, Some(&before), None).await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok((
+        StatusCode::NO_CONTENT,
+        Audit::new("user.delete", &before.username),
+        (),
+    ))
 }
 
 /// Zero the period's traffic; a user limited by it is let back in.
 pub async fn reset(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
-) -> ApiResult<Json<UserView>> {
+) -> ApiResult<(Audit, Json<UserView>)> {
     let _guard = state.core_lock().lock().await;
-    let before = state.db().user(id).await?.ok_or_else(not_found)?;
+    let before = visible(&state, &access, id).await?;
     state.db().reset_user_traffic(id).await?;
     let after = state.db().user(id).await?.ok_or_else(not_found)?;
     let after = settle(&state, after).await?;
     reach_core(&state, Some(&before), Some(&after)).await?;
-    Ok(Json(after.into()))
+    let audit = Audit::new("user.reset", &after.username);
+    Ok((audit, Json(view_of(&state, after).await?)))
 }
 
 /// New credentials and subscription link; the old ones stop working and
 /// their sessions end.
 pub async fn revoke(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
-) -> ApiResult<Json<UserView>> {
+) -> ApiResult<(Audit, Json<UserView>)> {
     let _guard = state.core_lock().lock().await;
-    let before = state.db().user(id).await?.ok_or_else(not_found)?;
+    let before = visible(&state, &access, id).await?;
     let (uuid, password, token) = credentials();
     state
         .db()
@@ -441,7 +599,8 @@ pub async fn revoke(
     let after = state.db().user(id).await?.ok_or_else(not_found)?;
     reach_core(&state, Some(&before), Some(&after)).await?;
     state.node().end_sessions(&after.username).await;
-    Ok(Json(after.into()))
+    let audit = Audit::new("user.revoke", &after.username);
+    Ok((audit, Json(view_of(&state, after).await?)))
 }
 
 #[derive(Serialize)]
@@ -451,13 +610,15 @@ pub struct Ended {
 
 pub async fn end_sessions(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
-) -> ApiResult<Json<Ended>> {
-    let user = state.db().user(id).await?.ok_or_else(not_found)?;
-    Ok(Json(Ended {
-        sessions: state.node().end_sessions(&user.username).await,
-    }))
+) -> ApiResult<(Audit, Json<Ended>)> {
+    let user = visible(&state, &access, id).await?;
+    let sessions = state.node().end_sessions(&user.username).await;
+    Ok((
+        Audit::new("user.end_sessions", &user.username),
+        Json(Ended { sessions }),
+    ))
 }
 
 #[derive(Serialize)]
@@ -469,10 +630,10 @@ pub struct Connected {
 /// The sessions a user has open now, and the addresses they come from.
 pub async fn online(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Connected>> {
-    let user = state.db().user(id).await?.ok_or_else(not_found)?;
+    let user = visible(&state, &access, id).await?;
     let account = state
         .node()
         .online()
@@ -505,10 +666,11 @@ pub struct UsagePoint {
 
 pub async fn usage(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
     Query(query): Query<UsageQuery>,
 ) -> ApiResult<Json<Vec<UsagePoint>>> {
+    visible(&state, &access, id).await?;
     let days = query.days.unwrap_or(7).clamp(1, 366);
     let since = z_db::now() - days * 86_400;
     let points = state.db().user_usage(id, since).await?;
@@ -527,13 +689,15 @@ pub async fn usage(
 /// Users by status, with `total` and `online` beside them.
 pub async fn counts(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
 ) -> ApiResult<Json<std::collections::HashMap<String, i64>>> {
-    let mut counts = state.db().user_counts().await?;
+    let owner = access.owner_scope();
+    let mut counts = state.db().user_counts(owner).await?;
     counts.insert("total".into(), counts.values().sum());
     let users = state.db().all_users().await?;
     let online = users
         .into_iter()
+        .filter(|user| owner.is_none() || user.admin_id == owner)
         .filter(|user| UserView::from(user.clone()).online)
         .count();
     counts.insert("online".into(), online as i64);
@@ -563,6 +727,21 @@ pub enum BulkAction {
     },
 }
 
+impl BulkAction {
+    fn name(&self) -> &'static str {
+        match self {
+            BulkAction::Enable => "enable",
+            BulkAction::Disable => "disable",
+            BulkAction::Delete => "delete",
+            BulkAction::Reset => "reset",
+            BulkAction::Revoke => "revoke",
+            BulkAction::Extend { .. } => "extend",
+            BulkAction::AddData { .. } => "add_data",
+            BulkAction::SetGroups { .. } => "set_groups",
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct BulkRequest {
     ids: Vec<i64>,
@@ -573,14 +752,18 @@ pub struct BulkRequest {
 #[derive(Serialize)]
 pub struct BulkResult {
     changed: usize,
+    /// Users left as they were because the change would pass the admin's
+    /// data quota.
+    skipped: usize,
 }
 
-/// One action on many users.
+/// One action on many users. Users the admin may not see are left out as
+/// though they were not there.
 pub async fn bulk(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Json(request): Json<BulkRequest>,
-) -> ApiResult<Json<BulkResult>> {
+) -> ApiResult<(Audit, Json<BulkResult>)> {
     if request.ids.len() > 10_000 {
         return Err(bad("too_many", "at most 10000 users at once"));
     }
@@ -592,12 +775,14 @@ pub async fn bulk(
         {
             return Err(bad("invalid_group", "there is no such group"));
         }
+        restrict_groups(&access, group_ids.clone(), &[])?;
     }
     let _guard = state.core_lock().lock().await;
     let db = state.db();
-    let mut changed = 0;
-    for id in request.ids {
-        let Some(before) = db.user(id).await? else {
+    let (mut changed, mut skipped) = (0, 0);
+    for id in &request.ids {
+        let id = *id;
+        let Some(before) = db.user(id).await?.filter(|user| access.sees(user)) else {
             continue;
         };
         let mut fields = z_db::UserFields {
@@ -651,7 +836,7 @@ pub async fn bulk(
                 }
             }
             BulkAction::SetGroups { group_ids } => {
-                fields.group_ids = group_ids.clone();
+                fields.group_ids = restrict_groups(&access, group_ids.clone(), &before.group_ids)?;
                 fields.group_ids.sort_unstable();
                 fields.group_ids.dedup();
             }
@@ -661,6 +846,23 @@ pub async fn bulk(
                 }
                 if fields.status == "limited" {
                     fields.status = "active".into();
+                }
+                let checked = check_quota(
+                    &state,
+                    &access,
+                    Some(&before),
+                    fields.data_limit,
+                    fields.next_plan,
+                    1,
+                )
+                .await;
+                match checked {
+                    Ok(()) => {}
+                    Err(error) if error.code == "quota_exceeded" => {
+                        skipped += 1;
+                        continue;
+                    }
+                    Err(error) => return Err(error),
                 }
             }
         }
@@ -675,7 +877,9 @@ pub async fn bulk(
         }
         changed += 1;
     }
-    Ok(Json(BulkResult { changed }))
+    let audit = Audit::new("user.bulk", request.action.name())
+        .detail(format!("{changed} of {} users", request.ids.len()));
+    Ok((audit, Json(BulkResult { changed, skipped })))
 }
 
 #[derive(Deserialize)]
@@ -696,22 +900,36 @@ fn one() -> i64 {
 /// Many users alike, `prefix1`, `prefix2`, … Names already taken are skipped.
 pub async fn bulk_create(
     State(state): State<AppState>,
-    CurrentAdmin(admin): CurrentAdmin,
+    access: Access,
     Json(request): Json<BulkCreate>,
-) -> ApiResult<(StatusCode, Json<BulkResult>)> {
+) -> ApiResult<(StatusCode, Audit, Json<BulkResult>)> {
     if !(1..=1000).contains(&request.count) {
         return Err(bad("too_many", "1 to 1000 users at once"));
     }
+    // One user is as another here, so one check covers the lot.
+    let _guard = state.core_lock().lock().await;
+    let mut sample = request.user.clone();
+    sample.username = format!("{}{}", request.prefix.trim(), request.start);
+    let mut first = fields(&state, sample).await?;
+    first.group_ids = restrict_groups(&access, std::mem::take(&mut first.group_ids), &[])?;
+    check_quota(
+        &state,
+        &access,
+        None,
+        first.data_limit,
+        first.next_plan,
+        request.count,
+    )
+    .await?;
     let mut changed = 0;
     for n in request.start..request.start + request.count {
-        let mut input = request.user.clone();
-        input.username = format!("{}{n}", request.prefix.trim());
-        let fields = fields(&state, input).await?;
-        let _guard = state.core_lock().lock().await;
+        let mut fields = first.clone();
+        fields.username = format!("{}{n}", request.prefix.trim());
+        check_username(&fields.username)?;
         let (uuid, password, token) = credentials();
         let Ok(user) = state
             .db()
-            .create_user(&fields, &uuid, &password, &token, Some(admin.id))
+            .create_user(&fields, &uuid, &password, &token, Some(access.admin.id))
             .await
         else {
             continue;
@@ -720,7 +938,16 @@ pub async fn bulk_create(
         reach_core(&state, None, Some(&user)).await?;
         changed += 1;
     }
-    Ok((StatusCode::CREATED, Json(BulkResult { changed })))
+    let audit = Audit::new("user.bulk_create", request.prefix.trim())
+        .detail(format!("{changed} of {} users", request.count));
+    Ok((
+        StatusCode::CREATED,
+        audit,
+        Json(BulkResult {
+            changed,
+            skipped: 0,
+        }),
+    ))
 }
 
 #[cfg(test)]

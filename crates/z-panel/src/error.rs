@@ -29,6 +29,18 @@ impl ApiError {
         Self::new(StatusCode::UNAUTHORIZED, "unauthorized", "sign in first")
     }
 
+    pub fn forbidden(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, code, message)
+    }
+
+    pub fn conflict(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, code, message)
+    }
+
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::NOT_FOUND, "not_found", message)
+    }
+
     pub fn bad_request(code: &'static str, message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, code, message)
     }
@@ -57,6 +69,10 @@ struct Body<'a> {
     retry_after: Option<u64>,
 }
 
+/// The code of the error a response carries, for the audit log.
+#[derive(Debug, Clone, Copy)]
+pub struct ErrorCode(pub &'static str);
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = Json(Body {
@@ -65,6 +81,7 @@ impl IntoResponse for ApiError {
             retry_after: self.retry_after,
         });
         let mut response = (self.status, body).into_response();
+        response.extensions_mut().insert(ErrorCode(self.code));
         if let Some(seconds) = self.retry_after {
             if let Ok(value) = seconds.to_string().parse() {
                 response

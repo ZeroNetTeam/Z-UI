@@ -6,27 +6,28 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Serialize;
 
-use crate::auth::CurrentAdmin;
+use crate::audit::Audit;
+use crate::auth::Access;
 use crate::error::{ApiError, ApiResult};
 use crate::server::AppState;
 use crate::subscription::{self, Settings};
 
-pub async fn settings(State(state): State<AppState>, _: CurrentAdmin) -> Json<Settings> {
+pub async fn settings(State(state): State<AppState>, _: Access) -> Json<Settings> {
     Json(state.subscription())
 }
 
 pub async fn save_settings(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<Settings>,
-) -> ApiResult<Json<Settings>> {
+) -> ApiResult<(Audit, Json<Settings>)> {
     let settings = input
         .checked(&state.config().base_path)
         .map_err(|message| ApiError::bad_request("invalid_subscription", message))?;
     let text = serde_json::to_string(&settings).map_err(ApiError::internal)?;
     state.db().set_setting(subscription::SETTING, &text).await?;
     state.set_subscription(settings.clone());
-    Ok(Json(settings))
+    Ok((Audit::new("settings.subscription", ""), Json(settings)))
 }
 
 #[derive(Serialize)]
@@ -41,10 +42,6 @@ pub struct UserSubscription {
     /// A QR code of `url`, as SVG.
     qr_svg: String,
     links: Vec<Link>,
-}
-
-fn not_found() -> ApiError {
-    ApiError::new(StatusCode::NOT_FOUND, "not_found", "there is no such user")
 }
 
 /// The address the dashboard was reached at, which subscription links share
@@ -65,11 +62,11 @@ fn origin(state: &AppState, headers: &HeaderMap) -> (String, String) {
 /// them now.
 pub async fn user_subscription(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> ApiResult<Json<UserSubscription>> {
-    let user = state.db().user(id).await?.ok_or_else(not_found)?;
+    let user = super::users::visible(&state, &access, id).await?;
     let settings = state.subscription();
     let (origin, host) = origin(&state, &headers);
     let server = if settings.server_address.is_empty() {
@@ -106,10 +103,10 @@ pub struct DeviceView {
 
 pub async fn devices(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Vec<DeviceView>>> {
-    state.db().user(id).await?.ok_or_else(not_found)?;
+    super::users::visible(&state, &access, id).await?;
     Ok(Json(
         state
             .db()
@@ -133,9 +130,10 @@ pub async fn devices(
 /// Forget one device, which frees its place under the user's limit.
 pub async fn delete_device(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path((id, device)): Path<(i64, i64)>,
-) -> ApiResult<StatusCode> {
+) -> ApiResult<(StatusCode, Audit, ())> {
+    let user = super::users::visible(&state, &access, id).await?;
     if state.db().delete_devices(id, Some(device)).await? == 0 {
         return Err(ApiError::new(
             StatusCode::NOT_FOUND,
@@ -143,16 +141,25 @@ pub async fn delete_device(
             "there is no such device",
         ));
     }
-    Ok(StatusCode::NO_CONTENT)
+    Ok((
+        StatusCode::NO_CONTENT,
+        Audit::new("user.device_delete", &user.username),
+        (),
+    ))
 }
 
 pub async fn delete_devices(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    access: Access,
     Path(id): Path<i64>,
-) -> ApiResult<StatusCode> {
+) -> ApiResult<(StatusCode, Audit, ())> {
+    let user = super::users::visible(&state, &access, id).await?;
     state.db().delete_devices(id, None).await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok((
+        StatusCode::NO_CONTENT,
+        Audit::new("user.devices_clear", &user.username),
+        (),
+    ))
 }
 
 #[cfg(test)]

@@ -11,7 +11,8 @@ use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use serde::{Deserialize, Serialize};
 
-use crate::auth::CurrentAdmin;
+use crate::audit::Audit;
+use crate::auth::Access;
 use crate::error::{ApiError, ApiResult};
 use crate::server::AppState;
 
@@ -114,7 +115,7 @@ pub fn inspect(cert_pem: &str, key_pem: &str) -> Result<Parsed, ApiError> {
 
 pub async fn list(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
 ) -> ApiResult<Json<Vec<CertificateView>>> {
     let all = state.db().certificates().await?;
     Ok(Json(all.into_iter().map(CertificateView::from).collect()))
@@ -122,9 +123,9 @@ pub async fn list(
 
 pub async fn create(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<CertificateInput>,
-) -> ApiResult<(StatusCode, Json<CertificateView>)> {
+) -> ApiResult<(StatusCode, Audit, Json<CertificateView>)> {
     let parsed = inspect(&input.cert_pem, &input.key_pem)?;
     let name = match input.name.trim() {
         "" => parsed
@@ -146,15 +147,17 @@ pub async fn create(
             parsed.not_after,
         )
         .await?;
-    Ok((StatusCode::CREATED, Json(certificate.into())))
+    let audit = Audit::new("certificate.create", &certificate.name);
+    Ok((StatusCode::CREATED, audit, Json(certificate.into())))
 }
 
 pub async fn delete(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
-) -> ApiResult<StatusCode> {
+) -> ApiResult<(StatusCode, Audit, ())> {
     let _guard = state.core_lock().lock().await;
+    let name = state.db().certificate(id).await?.map(|c| c.name);
     // An inbound that presents it would no longer build.
     for inbound in state.db().inbounds().await? {
         let stream: serde_json::Value = serde_json::from_str(&inbound.stream).unwrap_or_default();
@@ -167,7 +170,11 @@ pub async fn delete(
         }
     }
     if state.db().delete_certificate(id).await? {
-        Ok(StatusCode::NO_CONTENT)
+        let audit = Audit::new(
+            "certificate.delete",
+            name.unwrap_or_else(|| format!("#{id}")),
+        );
+        Ok((StatusCode::NO_CONTENT, audit, ()))
     } else {
         Err(ApiError::new(
             StatusCode::NOT_FOUND,

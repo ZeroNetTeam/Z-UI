@@ -28,6 +28,8 @@ struct Inner {
     node: Arc<dyn Node>,
     session_keys: SessionKeys,
     limiter: LoginLimiter,
+    /// Wrong API keys, counted by address.
+    key_limiter: LoginLimiter,
     /// While no admin exists: the one-time token that may create the first,
     /// printed to the log at start.
     setup_token: Mutex<Option<String>>,
@@ -61,6 +63,7 @@ impl AppState {
                 node,
                 session_keys,
                 limiter: LoginLimiter::default(),
+                key_limiter: LoginLimiter::default(),
                 setup_token: Mutex::new(None),
                 pending_totp: Mutex::new(HashMap::new()),
                 tls,
@@ -90,6 +93,10 @@ impl AppState {
 
     pub fn limiter(&self) -> &LoginLimiter {
         &self.inner.limiter
+    }
+
+    pub fn key_limiter(&self) -> &LoginLimiter {
+        &self.inner.key_limiter
     }
 
     pub fn tls(&self) -> bool {
@@ -145,7 +152,7 @@ impl AppState {
 pub fn router(state: AppState) -> Router {
     let base = state.config().base_path.clone();
     let panel = Router::new()
-        .nest("/api", crate::api::router())
+        .nest("/api", crate::api::router(&state))
         .fallback(crate::assets::serve);
     let app = if base == "/" {
         panel
@@ -350,9 +357,24 @@ pub mod testing {
             cookie: Option<&str>,
             body: Option<serde_json::Value>,
         ) -> Reply {
+            let headers: Vec<(&str, &str)> = cookie
+                .map(|cookie| (header::COOKIE.as_str(), cookie))
+                .into_iter()
+                .collect();
+            self.request(method, path, &headers, body).await
+        }
+
+        /// Any request, with any headers: a session cookie, an API key.
+        pub async fn request(
+            &self,
+            method: &str,
+            path: &str,
+            headers: &[(&str, &str)],
+            body: Option<serde_json::Value>,
+        ) -> Reply {
             let mut request = Request::builder().method(method).uri(path);
-            if let Some(cookie) = cookie {
-                request = request.header(header::COOKIE, cookie);
+            for (name, value) in headers {
+                request = request.header(*name, *value);
             }
             let request = match body {
                 Some(body) => request
@@ -370,6 +392,20 @@ pub mod testing {
                 body: String::from_utf8_lossy(&body).into_owned(),
                 headers,
             }
+        }
+
+        /// Sign in as `username` and return the session cookie.
+        pub async fn sign_in(&self, username: &str, password: &str) -> String {
+            let reply = self
+                .send(
+                    "POST",
+                    "/api/auth/login",
+                    None,
+                    Some(serde_json::json!({"username": username, "password": password})),
+                )
+                .await;
+            assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+            reply.session().expect("signing in sets a cookie")
         }
 
         /// A GET with `headers`, as a client app or browser sends it.

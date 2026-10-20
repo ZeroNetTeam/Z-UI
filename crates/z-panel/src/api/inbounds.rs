@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use z_common::node::Applied;
 
-use crate::auth::CurrentAdmin;
+use crate::audit::Audit;
+use crate::auth::Access;
 use crate::core_config;
 use crate::error::{ApiError, ApiResult};
 use crate::server::AppState;
@@ -195,17 +196,14 @@ fn not_found() -> ApiError {
     )
 }
 
-pub async fn list(
-    State(state): State<AppState>,
-    _: CurrentAdmin,
-) -> ApiResult<Json<Vec<InboundView>>> {
+pub async fn list(State(state): State<AppState>, _: Access) -> ApiResult<Json<Vec<InboundView>>> {
     let inbounds = state.db().inbounds().await?;
     Ok(Json(inbounds.into_iter().map(InboundView::from).collect()))
 }
 
 pub async fn get(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<InboundView>> {
     let inbound = state.db().inbound(id).await?.ok_or_else(not_found)?;
@@ -214,9 +212,9 @@ pub async fn get(
 
 pub async fn create(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Json(input): Json<InboundInput>,
-) -> ApiResult<(StatusCode, Json<Changed<InboundView>>)> {
+) -> ApiResult<(StatusCode, Audit, Json<Changed<InboundView>>)> {
     let _guard = state.core_lock().lock().await;
     let mut inbounds = state.db().inbounds().await?;
     let taken: Vec<&str> = inbounds.iter().map(|i| i.tag.as_str()).collect();
@@ -225,8 +223,11 @@ pub async fn create(
     let applied = core_config::apply(&state, &inbounds).await?;
     let inbound = state.db().create_inbound(&fields).await?;
     tracing::info!(tag = %inbound.tag, port = inbound.port, "inbound created");
+    let audit = Audit::new("inbound.create", &inbound.tag)
+        .detail(format!("{} on port {}", inbound.protocol, inbound.port));
     Ok((
         StatusCode::CREATED,
+        audit,
         Json(Changed {
             item: inbound.into(),
             applied,
@@ -236,10 +237,10 @@ pub async fn create(
 
 pub async fn update(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
     Json(input): Json<InboundInput>,
-) -> ApiResult<Json<Changed<InboundView>>> {
+) -> ApiResult<(Audit, Json<Changed<InboundView>>)> {
     let _guard = state.core_lock().lock().await;
     let mut inbounds = state.db().inbounds().await?;
     let index = inbounds
@@ -264,10 +265,14 @@ pub async fn update(
         .update_inbound(id, &fields)
         .await?
         .ok_or_else(not_found)?;
-    Ok(Json(Changed {
-        item: inbound.into(),
-        applied,
-    }))
+    let audit = Audit::new("inbound.update", &inbound.tag);
+    Ok((
+        audit,
+        Json(Changed {
+            item: inbound.into(),
+            applied,
+        }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -278,10 +283,10 @@ pub struct EnabledInput {
 /// Turn an inbound on or off, keeping everything else.
 pub async fn set_enabled(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
     Json(input): Json<EnabledInput>,
-) -> ApiResult<Json<Changed<InboundView>>> {
+) -> ApiResult<(Audit, Json<Changed<InboundView>>)> {
     let _guard = state.core_lock().lock().await;
     let mut inbounds = state.db().inbounds().await?;
     let inbound = inbounds
@@ -306,19 +311,31 @@ pub async fn set_enabled(
         .update_inbound(id, &fields)
         .await?
         .ok_or_else(not_found)?;
-    Ok(Json(Changed {
-        item: inbound.into(),
-        applied,
-    }))
+    let action = if inbound.enabled {
+        "inbound.enable"
+    } else {
+        "inbound.disable"
+    };
+    Ok((
+        Audit::new(action, &inbound.tag),
+        Json(Changed {
+            item: inbound.into(),
+            applied,
+        }),
+    ))
 }
 
 pub async fn delete(
     State(state): State<AppState>,
-    _: CurrentAdmin,
+    _: Access,
     Path(id): Path<i64>,
-) -> ApiResult<Json<Applied>> {
+) -> ApiResult<(Audit, Json<Applied>)> {
     let _guard = state.core_lock().lock().await;
     let mut inbounds = state.db().inbounds().await?;
+    let tag = inbounds
+        .iter()
+        .find(|inbound| inbound.id == id)
+        .map(|inbound| inbound.tag.clone());
     let before = inbounds.len();
     inbounds.retain(|inbound| inbound.id != id);
     if inbounds.len() == before {
@@ -327,7 +344,8 @@ pub async fn delete(
     let applied = core_config::apply(&state, &inbounds).await?;
     state.db().delete_inbound(id).await?;
     state.db().forget_inbound_in_groups(id).await?;
-    Ok(Json(applied))
+    let audit = Audit::new("inbound.delete", tag.unwrap_or_else(|| format!("#{id}")));
+    Ok((audit, Json(applied)))
 }
 
 #[cfg(test)]
