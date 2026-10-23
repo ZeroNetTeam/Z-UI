@@ -577,19 +577,11 @@ impl Ca {
         } else {
             identifier.to_string()
         };
-        let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .unwrap()
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(AcceptAll))
-        .with_no_client_auth();
-        config.alpn_protocols = vec![b"acme-tls/1".to_vec()];
+        let config = crate::tls::insecure_client(&[b"acme-tls/1"]);
         let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
             .await
             .map_err(|e| format!("Connecting to port {port}: {e}"))?;
-        let stream = tokio_rustls::TlsConnector::from(Arc::new(config))
+        let stream = tokio_rustls::TlsConnector::from(config)
             .connect(
                 rustls_pki_types::ServerName::try_from(name.clone()).unwrap(),
                 tcp,
@@ -762,46 +754,4 @@ fn jws(body: &[u8]) -> (Value, Value) {
         Some(text) => serde_json::from_slice(&unb64(text)).unwrap_or_default(),
     };
     (header, payload)
-}
-
-/// Accepts whatever certificate a server shows: the authority is the one
-/// who looks at it, and it is not signed by anyone.
-#[derive(Debug)]
-struct AcceptAll;
-
-impl rustls::client::danger::ServerCertVerifier for AcceptAll {
-    fn verify_server_cert(
-        &self,
-        _: &rustls_pki_types::CertificateDer<'_>,
-        _: &[rustls_pki_types::CertificateDer<'_>],
-        _: &rustls_pki_types::ServerName<'_>,
-        _: &[u8],
-        _: rustls_pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _: &[u8],
-        _: &rustls_pki_types::CertificateDer<'_>,
-        _: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _: &[u8],
-        _: &rustls_pki_types::CertificateDer<'_>,
-        _: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        rustls::crypto::ring::default_provider()
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
 }

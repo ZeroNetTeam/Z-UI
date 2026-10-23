@@ -201,6 +201,62 @@ pub fn watch_files(resolver: Arc<Resolver>, cert: PathBuf, key: PathBuf) {
     });
 }
 
+/// Accepts whatever certificate a server shows. Only for asking this panel,
+/// on this machine, whether it answers (the health check) and for the test
+/// authority: it proves nothing about who answers.
+#[derive(Debug)]
+struct AcceptAll;
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAll {
+    fn verify_server_cert(
+        &self,
+        _: &CertificateDer<'_>,
+        _: &[CertificateDer<'_>],
+        _: &rustls_pki_types::ServerName<'_>,
+        _: &[u8],
+        _: rustls_pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+/// A client config that trusts any certificate, offering `alpn`.
+pub fn insecure_client(alpn: &[&[u8]]) -> Arc<rustls::ClientConfig> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let mut config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("the default TLS versions")
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AcceptAll))
+        .with_no_client_auth();
+    config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
+    Arc::new(config)
+}
+
 /// A TLS acceptor that asks `resolver` for the certificate.
 pub fn acceptor(resolver: Arc<Resolver>) -> anyhow::Result<TlsAcceptor> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());

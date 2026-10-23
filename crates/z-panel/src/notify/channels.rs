@@ -244,6 +244,7 @@ fn colour(event: &Event) -> u32 {
         Event::CoreUp
         | Event::BackupDone { .. }
         | Event::CertificateRenewed { .. }
+        | Event::UpdateAvailable { .. }
         | Event::Test => 0x4f_a8_6b,
         _ => 0xd8_a8_1f,
     }

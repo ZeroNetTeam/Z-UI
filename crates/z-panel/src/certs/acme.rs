@@ -238,6 +238,7 @@ pub(super) async fn zerossl_key(
         proxy,
         timeout: Duration::from_secs(30),
         max_bytes: outbound::DEFAULT_MAX,
+        redirects: 0,
     })
     .await
     .map_err(|e| format!("ZeroSSL could not be reached: {e}"))?;

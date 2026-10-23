@@ -40,6 +40,7 @@ impl Cloudflare {
             proxy: self.proxy.as_ref(),
             timeout: Duration::from_secs(30),
             max_bytes: outbound::DEFAULT_MAX,
+            redirects: 0,
         })
         .await
         .map_err(|error| format!("Cloudflare could not be reached: {error}"))?;

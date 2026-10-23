@@ -63,6 +63,10 @@ http = "1"
 http-body-util = "0.1"
 bytes = "1"
 time = "0.3"
+# Updates: versions, the release archive, and the signature on its checksums.
+semver = "1"
+tar = { version = "0.4", default-features = false }
+ring = "0.17"
 
 [dev-dependencies]
 sqlx = { workspace = true }

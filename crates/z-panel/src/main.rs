@@ -7,6 +7,7 @@ mod audit;
 mod auth;
 mod backup;
 mod certs;
+mod cli;
 mod config;
 mod core_config;
 mod core_settings;
@@ -20,6 +21,7 @@ mod quota;
 mod server;
 mod subscription;
 mod tls;
+mod update;
 
 use std::sync::Arc;
 
@@ -27,7 +29,7 @@ use anyhow::Context;
 use z_node::Node;
 
 use crate::auth::session::SessionKeys;
-use crate::config::{AdminCommand, Command, PanelConfig, SettingCommand};
+use crate::config::PanelConfig;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -74,14 +76,11 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("opening the database")?;
 
-    if let Some(Command::Admin(command)) = &config.command {
-        return admin_command(&db, command).await;
-    }
     let stored = panel_settings::load(&db).await;
     config.apply_stored(&stored);
     let config = config.resolved()?;
-    if let Some(Command::Setting(command)) = &config.command {
-        return setting_command(&db, &config, &stored, command).await;
+    if let Some(command) = &config.command {
+        return cli::run(&config, &db, &stored, command).await;
     }
 
     let session_keys = SessionKeys::new(&session_secret(&db).await?);
@@ -126,6 +125,9 @@ async fn main() -> anyhow::Result<()> {
     let scheme = if tls.is_some() { "https" } else { "http" };
     let address = format!("{scheme}://{}{}", config.listen, config.under_base("/"));
     if db.admin_count().await? == 0 {
+        first_admin_from_environment(&db).await;
+    }
+    if db.admin_count().await? == 0 {
         // Whoever reaches a fresh panel first would otherwise own it: only
         // someone who can read this log can create the first admin.
         let token = hex::encode(rand::random::<[u8; 16]>());
@@ -141,6 +143,7 @@ async fn main() -> anyhow::Result<()> {
     notify::bot::spawn(state.clone());
     backup::spawn(state.clone());
     certs::spawn(state.clone());
+    update::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
         .with_context(|| format!("listening on {}", config.listen))?;
@@ -198,22 +201,12 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The path of this program: a binary replaced by an update is shown by the
-/// system as `path (deleted)`, and what is meant is the new one at `path`.
-fn own_executable() -> std::path::PathBuf {
-    let exe = std::env::current_exe().unwrap_or_else(|_| "z-ui".into());
-    match exe.to_string_lossy().strip_suffix(" (deleted)") {
-        Some(path) => std::path::PathBuf::from(path),
-        None => exe,
-    }
-}
-
 /// Replace this process with a new one running the same program with the
 /// same arguments, so a restart needs no service manager (and keeps the
 /// process id, which one expects of a container's first process). Only
 /// returns if that failed.
 fn start_again() -> anyhow::Error {
-    let exe = own_executable();
+    let exe = update::own_executable();
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -225,6 +218,42 @@ fn start_again() -> anyhow::Error {
     #[cfg(not(unix))]
     {
         anyhow::anyhow!("stopped for a restart; start {} again", exe.display())
+    }
+}
+
+/// A fresh panel started with `ZUI_ADMIN_USER` and `ZUI_ADMIN_PASSWORD`
+/// (a container, which has no one at a terminal) gets that admin, a sudo
+/// one, at once. A name or password that will not do is said and ignored: the
+/// setup link in the log is still there.
+async fn first_admin_from_environment(db: &z_db::Database) {
+    let (Some(username), Some(password)) = (
+        std::env::var("ZUI_ADMIN_USER")
+            .ok()
+            .filter(|v| !v.trim().is_empty()),
+        std::env::var("ZUI_ADMIN_PASSWORD")
+            .ok()
+            .filter(|v| !v.is_empty()),
+    ) else {
+        return;
+    };
+    let made = async {
+        auth::password::check_username(&username).map_err(|e| e.message)?;
+        auth::password::check_strength(&password).map_err(|e| e.message)?;
+        let hash = auth::password::hash(&password)
+            .await
+            .map_err(|e| e.message)?;
+        db.create_admin(&username, &hash, true)
+            .await
+            .map_err(|e| e.to_string())
+    }
+    .await;
+    match made {
+        Ok(_) => {
+            tracing::info!(%username, "the first admin was made from ZUI_ADMIN_USER and ZUI_ADMIN_PASSWORD")
+        }
+        Err(error) => {
+            tracing::warn!(%error, "ZUI_ADMIN_USER and ZUI_ADMIN_PASSWORD could not make an admin")
+        }
     }
 }
 
@@ -241,135 +270,6 @@ async fn session_secret(db: &z_db::Database) -> anyhow::Result<Vec<u8>> {
     let secret = rand::random::<[u8; 32]>();
     db.set_setting(KEY, &hex::encode(secret)).await?;
     Ok(secret.to_vec())
-}
-
-async fn admin_command(db: &z_db::Database, command: &AdminCommand) -> anyhow::Result<()> {
-    match command {
-        AdminCommand::ResetPassword {
-            username,
-            password,
-            disable_2fa,
-        } => {
-            let admin = db
-                .admin_by_username(username)
-                .await?
-                .with_context(|| format!("there is no admin {username:?}"))?;
-            let (password, generated) = match password {
-                Some(password) => (password.clone(), false),
-                None => (hex::encode(rand::random::<[u8; 9]>()), true),
-            };
-            auth::password::check_strength(&password).map_err(|e| anyhow::anyhow!(e.message))?;
-            let hash = auth::password::hash(&password)
-                .await
-                .map_err(|e| anyhow::anyhow!(e.message))?;
-            db.set_admin_password(admin.id, &hash).await?;
-            if *disable_2fa {
-                db.set_admin_totp(admin.id, None).await?;
-            }
-            println!("the password of {username:?} was reset; their sessions have ended");
-            if generated {
-                println!("new password: {password}");
-            }
-            if *disable_2fa {
-                println!("two-factor sign-in is off");
-            }
-            Ok(())
-        }
-    }
-}
-
-async fn setting_command(
-    db: &z_db::Database,
-    config: &PanelConfig,
-    stored: &panel_settings::Stored,
-    command: &SettingCommand,
-) -> anyhow::Result<()> {
-    match command {
-        SettingCommand::Show => {
-            let scheme = if config.locked.certificate || stored.certificate_id.is_some() {
-                "https"
-            } else {
-                "http"
-            };
-            let from = |locked: bool, stored: bool| match (locked, stored) {
-                (true, _) => "a flag or ZUI_* variable",
-                (false, true) => "stored",
-                (false, false) => "default",
-            };
-            println!(
-                "listen       {}  ({})",
-                config.listen,
-                from(config.locked.listen, stored.listen.is_some())
-            );
-            println!(
-                "path         {}  ({})",
-                config.base_path,
-                from(config.locked.base_path, stored.base_path.is_some())
-            );
-            let certificate = match (&config.cert, stored.certificate_id) {
-                (Some(cert), _) => format!("files {}  (a flag or ZUI_* variable)", cert.display()),
-                (None, Some(id)) => match db.certificate(id).await? {
-                    Some(c) => format!("#{id} {}  (stored)", c.name),
-                    None => format!("#{id}, which no longer exists  (stored)"),
-                },
-                (None, None) => "none: plain HTTP  (default)".into(),
-            };
-            println!("certificate  {certificate}");
-            println!(
-                "address      {scheme}://{}{}",
-                config.listen,
-                config.under_base("/")
-            );
-            Ok(())
-        }
-        SettingCommand::Set {
-            listen,
-            port,
-            path,
-            certificate,
-        } => {
-            let mut next = stored.clone();
-            if let Some(listen) = listen {
-                next.listen = Some(*listen);
-            }
-            if let Some(port) = port {
-                anyhow::ensure!(*port > 0, "port 0 is not a port to listen on");
-                let mut address = config.listen;
-                address.set_port(*port);
-                next.listen = Some(address);
-            }
-            if let Some(path) = path {
-                let path = panel_settings::normalize_base_path(path).map_err(anyhow::Error::msg)?;
-                next.base_path = Some(path);
-            }
-            if let Some(certificate) = certificate {
-                next.certificate_id = match certificate.trim() {
-                    "none" | "" => None,
-                    id => {
-                        let id: i64 = id
-                            .trim_start_matches('#')
-                            .parse()
-                            .with_context(|| format!("{id:?} is not a certificate id or `none`"))?;
-                        let found = db
-                            .certificate(id)
-                            .await?
-                            .with_context(|| format!("there is no certificate {id}"))?;
-                        tls::certified_key(found.cert_pem.as_bytes(), found.key_pem.as_bytes())
-                            .with_context(|| format!("certificate {id} cannot be served"))?;
-                        Some(id)
-                    }
-                };
-            }
-            panel_settings::save(db, &next).await?;
-            println!("stored; they apply when the panel next starts");
-            Ok(())
-        }
-        SettingCommand::Reset => {
-            panel_settings::save(db, &panel_settings::Stored::default()).await?;
-            println!("the stored settings are gone; the flags and defaults apply again");
-            Ok(())
-        }
-    }
 }
 
 async fn shutdown_signal() {

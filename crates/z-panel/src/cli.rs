@@ -1,0 +1,763 @@
+//! The program's commands for use on the server: admins, where the panel
+//! listens, certificates, updates, backups, and a health check. They work on
+//! the database directly, so they need no sign-in and no running panel (what
+//! a running panel holds in memory is read again when it restarts).
+
+use std::sync::Arc;
+
+use anyhow::Context;
+
+use crate::auth;
+use crate::auth::session::SessionKeys;
+use crate::certs::{self, acme};
+use crate::config::{
+    AdminCommand, CertCommand, Command, PanelConfig, SettingCommand, UpdateCommand,
+};
+use crate::panel_settings::{self, Stored};
+use crate::server::AppState;
+use crate::{backup, monitor, notify, tls, update};
+
+pub async fn run(
+    config: &PanelConfig,
+    db: &z_db::Database,
+    stored: &Stored,
+    command: &Command,
+) -> anyhow::Result<()> {
+    match command {
+        Command::Admin(command) => admin(db, command).await,
+        Command::Setting(command) => setting(db, config, stored, command).await,
+        Command::Cert(command) => cert(config, db, command).await,
+        Command::Update(command) => update_command(db, command).await,
+        Command::Backup { out } => backup_now(config, db, out.as_deref()).await,
+        Command::Restore { file, passphrase } => {
+            restore(config, db, file, passphrase.as_deref()).await
+        }
+        Command::Health => health(config, stored).await,
+    }
+}
+
+/// A panel's state without a running panel: what the work of the certificate
+/// store and the backups needs, and no listener, core or notifier worker.
+async fn offline(config: &PanelConfig, db: &z_db::Database) -> AppState {
+    let state = AppState::new(
+        config.clone(),
+        db.clone(),
+        Arc::new(z_node::LocalNode::new()),
+        SessionKeys::new(b"offline"),
+        None,
+        monitor::Monitor::new(Default::default(), config.data_dir.clone()),
+    );
+    state.set_notify_settings(notify::load(db).await);
+    state
+}
+
+async fn admin(db: &z_db::Database, command: &AdminCommand) -> anyhow::Result<()> {
+    match command {
+        AdminCommand::Create {
+            username,
+            password,
+            not_sudo,
+        } => {
+            auth::password::check_username(username).map_err(|e| anyhow::anyhow!(e.message))?;
+            let (password, generated) = match password {
+                Some(password) => (password.clone(), false),
+                None => (hex::encode(rand::random::<[u8; 9]>()), true),
+            };
+            auth::password::check_strength(&password).map_err(|e| anyhow::anyhow!(e.message))?;
+            let hash = auth::password::hash(&password)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.message))?;
+            db.create_admin(username, &hash, !not_sudo)
+                .await
+                .with_context(|| {
+                    format!("making the admin {username:?} (is there one already?)")
+                })?;
+            println!(
+                "made the admin {username:?}{}",
+                if *not_sudo { "" } else { " (sudo)" }
+            );
+            if generated {
+                println!("password: {password}");
+            }
+            Ok(())
+        }
+        AdminCommand::List => {
+            for admin in db.admins().await? {
+                println!(
+                    "#{:<3} {:<24} {}{}{}",
+                    admin.id,
+                    admin.username,
+                    if admin.is_sudo { "sudo" } else { "role" },
+                    if admin.enabled { "" } else { "  (disabled)" },
+                    if admin.totp_secret.is_some() {
+                        "  2FA"
+                    } else {
+                        ""
+                    }
+                );
+            }
+            Ok(())
+        }
+        AdminCommand::ResetPassword {
+            username,
+            password,
+            disable_2fa,
+        } => {
+            let admin = db
+                .admin_by_username(username)
+                .await?
+                .with_context(|| format!("there is no admin {username:?}"))?;
+            let (password, generated) = match password {
+                Some(password) => (password.clone(), false),
+                None => (hex::encode(rand::random::<[u8; 9]>()), true),
+            };
+            auth::password::check_strength(&password).map_err(|e| anyhow::anyhow!(e.message))?;
+            let hash = auth::password::hash(&password)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.message))?;
+            db.set_admin_password(admin.id, &hash).await?;
+            if *disable_2fa {
+                db.set_admin_totp(admin.id, None).await?;
+            }
+            println!("the password of {username:?} was reset; their sessions have ended");
+            if generated {
+                println!("new password: {password}");
+            }
+            if *disable_2fa {
+                println!("two-factor sign-in is off");
+            }
+            Ok(())
+        }
+    }
+}
+
+async fn setting(
+    db: &z_db::Database,
+    config: &PanelConfig,
+    stored: &panel_settings::Stored,
+    command: &SettingCommand,
+) -> anyhow::Result<()> {
+    match command {
+        SettingCommand::Show => {
+            let scheme = if config.locked.certificate || stored.certificate_id.is_some() {
+                "https"
+            } else {
+                "http"
+            };
+            let from = |locked: bool, stored: bool| match (locked, stored) {
+                (true, _) => "a flag or ZUI_* variable",
+                (false, true) => "stored",
+                (false, false) => "default",
+            };
+            println!(
+                "listen       {}  ({})",
+                config.listen,
+                from(config.locked.listen, stored.listen.is_some())
+            );
+            println!(
+                "path         {}  ({})",
+                config.base_path,
+                from(config.locked.base_path, stored.base_path.is_some())
+            );
+            let certificate = match (&config.cert, stored.certificate_id) {
+                (Some(cert), _) => format!("files {}  (a flag or ZUI_* variable)", cert.display()),
+                (None, Some(id)) => match db.certificate(id).await? {
+                    Some(c) => format!("#{id} {}  (stored)", c.name),
+                    None => format!("#{id}, which no longer exists  (stored)"),
+                },
+                (None, None) => "none: plain HTTP  (default)".into(),
+            };
+            println!("certificate  {certificate}");
+            println!(
+                "address      {scheme}://{}{}",
+                config.listen,
+                config.under_base("/")
+            );
+            Ok(())
+        }
+        SettingCommand::Set {
+            listen,
+            port,
+            path,
+            certificate,
+        } => {
+            let mut next = stored.clone();
+            if let Some(listen) = listen {
+                next.listen = Some(*listen);
+            }
+            if let Some(port) = port {
+                anyhow::ensure!(*port > 0, "port 0 is not a port to listen on");
+                let mut address = config.listen;
+                address.set_port(*port);
+                next.listen = Some(address);
+            }
+            if let Some(path) = path {
+                let path = panel_settings::normalize_base_path(path).map_err(anyhow::Error::msg)?;
+                next.base_path = Some(path);
+            }
+            if let Some(certificate) = certificate {
+                next.certificate_id = match certificate.trim() {
+                    "none" | "" => None,
+                    id => {
+                        let id: i64 = id
+                            .trim_start_matches('#')
+                            .parse()
+                            .with_context(|| format!("{id:?} is not a certificate id or `none`"))?;
+                        let found = db
+                            .certificate(id)
+                            .await?
+                            .with_context(|| format!("there is no certificate {id}"))?;
+                        tls::certified_key(found.cert_pem.as_bytes(), found.key_pem.as_bytes())
+                            .with_context(|| format!("certificate {id} cannot be served"))?;
+                        Some(id)
+                    }
+                };
+            }
+            panel_settings::save(db, &next).await?;
+            println!("stored; they apply when the panel next starts");
+            Ok(())
+        }
+        SettingCommand::Reset => {
+            panel_settings::save(db, &panel_settings::Stored::default()).await?;
+            println!("the stored settings are gone; the flags and defaults apply again");
+            Ok(())
+        }
+    }
+}
+
+fn days_left(not_after: i64) -> i64 {
+    (not_after - z_db::now()).div_euclid(86_400)
+}
+
+async fn cert(
+    config: &PanelConfig,
+    db: &z_db::Database,
+    command: &CertCommand,
+) -> anyhow::Result<()> {
+    match command {
+        CertCommand::List => {
+            let all = db.certificates().await?;
+            if all.is_empty() {
+                println!("no certificates");
+            }
+            for c in all {
+                println!(
+                    "#{:<3} {:<28} {:<10} {:>5} days  {}{}",
+                    c.id,
+                    c.name,
+                    c.source,
+                    days_left(c.not_after),
+                    c.domains,
+                    if c.auto_renew {
+                        "  (renews itself)"
+                    } else {
+                        ""
+                    }
+                );
+            }
+            Ok(())
+        }
+        CertCommand::Issue {
+            names,
+            method,
+            name,
+            no_auto_renew,
+            ca,
+            email,
+            cloudflare_token,
+            porcelain,
+        } => {
+            let mut settings = certs::settings::load(db).await;
+            if let Some(ca) = ca {
+                settings.ca = match ca.as_str() {
+                    "letsencrypt" => certs::settings::Ca::Letsencrypt,
+                    "letsencrypt_staging" | "staging" => certs::settings::Ca::LetsencryptStaging,
+                    "zerossl" => certs::settings::Ca::Zerossl,
+                    other => anyhow::bail!("{other:?} is not an authority: letsencrypt, letsencrypt_staging or zerossl"),
+                };
+            }
+            if let Some(email) = email {
+                settings.email = email.clone();
+            }
+            if let Some(token) = cloudflare_token {
+                settings.cloudflare_token = token.clone();
+            }
+            certs::settings::save(db, &settings).await?;
+            let state = offline(config, db).await;
+            let issued = certs::issue(
+                &state,
+                certs::IssueRequest {
+                    name: name.clone().unwrap_or_default(),
+                    names: names.clone(),
+                    method: acme::Method::from_label(method),
+                    auto_renew: !no_auto_renew,
+                },
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(e.message))?;
+            if *porcelain {
+                println!("{}", issued.id);
+            } else {
+                println!(
+                    "got certificate #{} {:?} for {} ({} days; {})",
+                    issued.id,
+                    issued.name,
+                    issued.domains,
+                    days_left(issued.not_after),
+                    issued.method
+                );
+            }
+            Ok(())
+        }
+        CertCommand::Renew { id } => {
+            let state = offline(config, db).await;
+            let renewed = certs::renew(&state, *id)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.message))?;
+            println!(
+                "renewed #{} {:?}: {} days left",
+                renewed.id,
+                renewed.name,
+                days_left(renewed.not_after)
+            );
+            println!("a running panel takes it when it restarts");
+            Ok(())
+        }
+        CertCommand::SelfSigned {
+            names,
+            name,
+            porcelain,
+        } => {
+            let parsed = acme::parse_names(names).map_err(|e| anyhow::anyhow!(e.message))?;
+            let (cert_pem, key_pem) =
+                certs::self_signed(&parsed).map_err(|e| anyhow::anyhow!(e.message))?;
+            let seen =
+                certs::inspect(&cert_pem, &key_pem).map_err(|e| anyhow::anyhow!(e.message))?;
+            let made = db
+                .add_certificate(z_db::NewCertificate {
+                    name: name.clone().unwrap_or_else(|| parsed[0].text()),
+                    domains: seen.domains.join(","),
+                    cert_pem: cert_pem.trim().into(),
+                    key_pem: key_pem.trim().into(),
+                    source: "self-signed".into(),
+                    not_before: seen.not_before,
+                    not_after: seen.not_after,
+                    ..Default::default()
+                })
+                .await?;
+            if *porcelain {
+                println!("{}", made.id);
+            } else {
+                println!(
+                    "made certificate #{} {:?} for {}",
+                    made.id, made.name, made.domains
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+async fn update_command(db: &z_db::Database, command: &UpdateCommand) -> anyhow::Result<()> {
+    let settings = update::load(db).await;
+    let exe = update::own_executable();
+    match command {
+        UpdateCommand::Check => {
+            let info = update::check(&settings).await.map_err(anyhow::Error::msg)?;
+            if info.available {
+                println!(
+                    "version {} is out (this is {}): {}",
+                    info.version, info.current, info.url
+                );
+            } else {
+                println!("{} is the newest version", info.current);
+            }
+            Ok(())
+        }
+        UpdateCommand::Apply { yes } => {
+            anyhow::ensure!(
+                !update::in_container(),
+                "this runs in a container: pull the new image instead"
+            );
+            let info = update::check(&settings).await.map_err(anyhow::Error::msg)?;
+            if !info.available {
+                println!("{} is the newest version", info.current);
+                return Ok(());
+            }
+            println!(
+                "version {} is out (this is {}): {}",
+                info.version, info.current, info.url
+            );
+            if !yes {
+                println!("run it again with --yes to put it in place");
+                return Ok(());
+            }
+            let program = update::download_verified(&settings, &info, update::SIGNING_KEY)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            update::install(&program, &exe, &info.version)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            println!(
+                "version {} is in place at {}; restart the panel to run it",
+                info.version,
+                exe.display()
+            );
+            Ok(())
+        }
+        UpdateCommand::Rollback => {
+            update::rollback(&exe).map_err(anyhow::Error::msg)?;
+            println!(
+                "the earlier program is back at {}; restart the panel to run it",
+                exe.display()
+            );
+            Ok(())
+        }
+    }
+}
+
+async fn backup_now(
+    config: &PanelConfig,
+    db: &z_db::Database,
+    out: Option<&std::path::Path>,
+) -> anyhow::Result<()> {
+    let state = offline(config, db).await;
+    let done = backup::run(&state, None)
+        .await
+        .map_err(anyhow::Error::msg)?;
+    let path = backup::dir(&state).join(&done.file);
+    println!("backup {} ({} bytes)", path.display(), done.bytes);
+    if let Some(out) = out {
+        std::fs::copy(&path, out).with_context(|| format!("copying it to {}", out.display()))?;
+        println!("copied to {}", out.display());
+    }
+    Ok(())
+}
+
+async fn restore(
+    config: &PanelConfig,
+    db: &z_db::Database,
+    file: &std::path::Path,
+    passphrase: Option<&str>,
+) -> anyhow::Result<()> {
+    let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+    let state = offline(config, db).await;
+    let done = backup::restore(&state, &bytes, passphrase.unwrap_or(""))
+        .await
+        .map_err(|e| anyhow::anyhow!(e.message))?;
+    println!("restored; what was there before is kept as {}", done.safety);
+    println!("start the panel again to use it (everyone has to sign in again)");
+    Ok(())
+}
+
+/// Ask the panel on this machine whether it answers: connect to where it
+/// listens (over TLS if it serves HTTPS) and read the status of its open
+/// `auth/state`.
+async fn health(config: &PanelConfig, stored: &Stored) -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut address = config.listen;
+    if address.ip().is_unspecified() {
+        address.set_ip(if address.is_ipv4() {
+            std::net::Ipv4Addr::LOCALHOST.into()
+        } else {
+            std::net::Ipv6Addr::LOCALHOST.into()
+        });
+    }
+    let tls =
+        config.cert.is_some() || (!config.locked.certificate && stored.certificate_id.is_some());
+    let request = format!(
+        "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        config.under_base("/api/auth/state")
+    );
+    let tcp = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::net::TcpStream::connect(address),
+    )
+    .await
+    .context("connecting timed out")?
+    .with_context(|| format!("connecting to {address}"))?;
+    let mut head = [0u8; 12];
+    if tls {
+        let connector = tokio_rustls::TlsConnector::from(tls::insecure_client(&[b"http/1.1"]));
+        let name = rustls_pki_types::ServerName::try_from("localhost")?;
+        let mut stream = connector
+            .connect(name, tcp)
+            .await
+            .context("the TLS handshake")?;
+        stream.write_all(request.as_bytes()).await?;
+        stream.read_exact(&mut head).await?;
+    } else {
+        let mut stream = tcp;
+        stream.write_all(request.as_bytes()).await?;
+        stream.read_exact(&mut head).await?;
+    }
+    let line = String::from_utf8_lossy(&head);
+    anyhow::ensure!(line.ends_with(" 200"), "the panel answered {line:?}");
+    println!("ok");
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn world() -> (PanelConfig, z_db::Database, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "z-cli-{}-{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = PanelConfig::from_args_iter(["z-ui", "--data-dir", dir.to_str().unwrap()]);
+        let db = z_db::Database::open(&config.database_url()).await.unwrap();
+        (config, db, dir)
+    }
+
+    async fn run_args(
+        config: &PanelConfig,
+        db: &z_db::Database,
+        args: &[&str],
+    ) -> anyhow::Result<()> {
+        let mut argv = vec!["z-ui", "--data-dir", config.data_dir.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        let parsed = PanelConfig::from_args_iter(argv);
+        let stored = panel_settings::load(db).await;
+        run(
+            &parsed,
+            db,
+            &stored,
+            parsed.command.as_ref().expect("a command"),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn an_admin_is_made_from_the_server_and_a_duplicate_or_a_weak_password_is_refused() {
+        let (config, db, dir) = world().await;
+        run_args(
+            &config,
+            &db,
+            &["admin", "create", "root", "--password", "a-fine-password-1"],
+        )
+        .await
+        .unwrap();
+        let admins = db.admins().await.unwrap();
+        assert_eq!(admins.len(), 1);
+        assert!(admins[0].is_sudo && admins[0].username == "root");
+        assert!(auth::password::verify("a-fine-password-1", &admins[0].password_hash).await);
+
+        assert!(
+            run_args(&config, &db, &["admin", "create", "root"])
+                .await
+                .is_err(),
+            "taken"
+        );
+        assert!(run_args(
+            &config,
+            &db,
+            &["admin", "create", "other", "--password", "short"]
+        )
+        .await
+        .is_err());
+        assert!(run_args(&config, &db, &["admin", "create", "a b"])
+            .await
+            .is_err());
+        run_args(&config, &db, &["admin", "create", "helper", "--not-sudo"])
+            .await
+            .unwrap();
+        assert!(
+            !db.admin_by_username("helper")
+                .await
+                .unwrap()
+                .unwrap()
+                .is_sudo
+        );
+        run_args(&config, &db, &["admin", "list"]).await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_stored_address_is_set_shown_and_forgotten_from_the_server() {
+        let (config, db, dir) = world().await;
+        run_args(&config, &db, &["cert", "self-signed", "panel.test"])
+            .await
+            .unwrap();
+        run_args(
+            &config,
+            &db,
+            &[
+                "setting",
+                "set",
+                "--port",
+                "24680",
+                "--path",
+                "secret/",
+                "--certificate",
+                "1",
+            ],
+        )
+        .await
+        .unwrap();
+        let stored = panel_settings::load(&db).await;
+        assert_eq!(stored.listen.unwrap().port(), 24680);
+        assert_eq!(stored.base_path.as_deref(), Some("/secret"));
+        assert_eq!(stored.certificate_id, Some(1));
+        run_args(&config, &db, &["setting", "show"]).await.unwrap();
+
+        assert!(
+            run_args(&config, &db, &["setting", "set", "--certificate", "99"])
+                .await
+                .is_err(),
+            "no such certificate"
+        );
+        assert!(run_args(&config, &db, &["setting", "set", "--path", "a b"])
+            .await
+            .is_err());
+        assert!(run_args(&config, &db, &["setting", "set", "--port", "0"])
+            .await
+            .is_err());
+        run_args(&config, &db, &["setting", "set", "--certificate", "none"])
+            .await
+            .unwrap();
+        assert_eq!(panel_settings::load(&db).await.certificate_id, None);
+        run_args(&config, &db, &["setting", "reset"]).await.unwrap();
+        assert_eq!(panel_settings::load(&db).await, Stored::default());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_backup_is_made_and_put_back_from_the_server() {
+        let (config, db, dir) = world().await;
+        run_args(
+            &config,
+            &db,
+            &["admin", "create", "root", "--password", "a-fine-password-1"],
+        )
+        .await
+        .unwrap();
+        let out = dir.join("copy.zbk");
+        run_args(&config, &db, &["backup", "--out", out.to_str().unwrap()])
+            .await
+            .unwrap();
+        assert!(out.metadata().unwrap().len() > 100);
+        run_args(
+            &config,
+            &db,
+            &[
+                "admin",
+                "create",
+                "after",
+                "--password",
+                "a-fine-password-2",
+            ],
+        )
+        .await
+        .unwrap();
+        run_args(&config, &db, &["restore", out.to_str().unwrap()])
+            .await
+            .unwrap();
+        assert!(
+            db.admin_by_username("after").await.unwrap().is_none(),
+            "what came after is gone"
+        );
+        assert!(db.admin_by_username("root").await.unwrap().is_some());
+        assert!(run_args(
+            &config,
+            &db,
+            &["restore", dir.join("missing.zbk").to_str().unwrap()]
+        )
+        .await
+        .is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A server that answers every request with `status`.
+    async fn answering(status: &'static str) -> std::net::SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let mut buffer = [0u8; 1024];
+                    let _ = stream.read(&mut buffer).await;
+                    let _ = stream
+                        .write_all(
+                            format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n").as_bytes(),
+                        )
+                        .await;
+                });
+            }
+        });
+        address
+    }
+
+    #[tokio::test]
+    async fn health_is_ok_for_a_panel_that_answers_200_and_not_for_one_that_does_not() {
+        let (_, _, dir) = world().await;
+        let check = |address: std::net::SocketAddr, base: &str| {
+            let listen = address.to_string();
+            let config = PanelConfig::from_args_iter([
+                "z-ui",
+                "--data-dir",
+                dir.to_str().unwrap(),
+                "--listen",
+                &listen,
+                "--base-path",
+                base,
+            ])
+            .resolved()
+            .unwrap();
+            async move { health(&config, &Stored::default()).await }
+        };
+        assert!(check(answering("200 OK").await, "/zpanel").await.is_ok());
+        let error = check(answering("503 Service Unavailable").await, "/")
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("503"), "{error}");
+        // Nothing listening at all.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        assert!(check(closed, "/").await.is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn health_speaks_tls_to_a_panel_that_serves_https_whatever_its_certificate() {
+        let (_, _, dir) = world().await;
+        let (cert, key) = tls::testing::self_signed(&["panel.test"], 30);
+        let resolver = tls::Resolver::from_pem(&cert, &key).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app =
+            axum::Router::new().route("/api/auth/state", axum::routing::get(|| async { "{}" }));
+        tokio::spawn(tls::serve(
+            listener,
+            tls::acceptor(resolver).unwrap(),
+            app,
+            std::future::pending(),
+        ));
+        let listen = address.to_string();
+        let config = PanelConfig::from_args_iter([
+            "z-ui",
+            "--data-dir",
+            dir.to_str().unwrap(),
+            "--listen",
+            &listen,
+        ])
+        .resolved()
+        .unwrap();
+        let stored = Stored {
+            certificate_id: Some(1),
+            ..Stored::default()
+        };
+        assert!(health(&config, &stored).await.is_ok(), "https");
+        assert!(
+            health(&config, &Stored::default()).await.is_err(),
+            "plain HTTP to an HTTPS port is not an answer"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

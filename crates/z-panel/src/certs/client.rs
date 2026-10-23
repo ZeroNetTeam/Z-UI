@@ -67,6 +67,7 @@ impl HttpClient for Client {
                 proxy: proxy.as_ref(),
                 timeout: Duration::from_secs(30),
                 max_bytes: MAX_REPLY,
+                redirects: 0,
             })
             .await
             .map_err(other)?;

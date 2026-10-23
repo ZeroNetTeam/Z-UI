@@ -31,12 +31,16 @@ pub struct Reply {
 }
 
 impl Reply {
-    #[cfg(test)]
-    pub fn header(&self, name: &str) -> Option<&str> {
+    pub fn header_any(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case(name))
             .map(|(_, value)| value.as_str())
+    }
+
+    #[cfg(test)]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.header_any(name)
     }
 
     pub fn is_success(&self) -> bool {
@@ -50,6 +54,7 @@ impl Reply {
 }
 
 /// What to send and how patiently.
+#[derive(Clone, Copy)]
 pub struct Request<'a> {
     pub method: &'a str,
     pub url: &'a str,
@@ -59,6 +64,9 @@ pub struct Request<'a> {
     pub proxy: Option<&'a Proxy>,
     pub timeout: Duration,
     pub max_bytes: usize,
+    /// How many redirects to follow (a download from a release server is
+    /// sent on to a storage host); none by default.
+    pub redirects: u8,
 }
 
 impl<'a> Request<'a> {
@@ -72,6 +80,7 @@ impl<'a> Request<'a> {
             proxy: None,
             timeout: Duration::from_secs(30),
             max_bytes: DEFAULT_MAX,
+            redirects: 0,
         }
     }
 }
@@ -88,9 +97,47 @@ pub async fn send(request: Request<'_>) -> Result<Reply, HttpError> {
 
 async fn send_now(request: Request<'_>) -> Result<Reply, HttpError> {
     let timeout = request.timeout;
-    tokio::time::timeout(timeout, exchange(request))
+    tokio::time::timeout(timeout, follow(request))
         .await
         .map_err(|_| failed(format!("timed out after {timeout:?}")))?
+}
+
+/// The answer to `request`, after any redirects it is allowed to follow. The
+/// time limit covers all of them together.
+async fn follow(request: Request<'_>) -> Result<Reply, HttpError> {
+    let mut url = request.url.to_string();
+    let mut method = request.method;
+    let mut body = request.body;
+    for hop in 0..=request.redirects {
+        let reply = exchange(Request {
+            url: &url,
+            method,
+            body,
+            ..request
+        })
+        .await?;
+        let moved = matches!(reply.status, 301 | 302 | 303 | 307 | 308);
+        let Some(location) = reply.header_any("location").filter(|_| moved) else {
+            return Ok(reply);
+        };
+        // Following none is the default: the redirect is then the answer.
+        if request.redirects == 0 {
+            return Ok(reply);
+        }
+        if hop == request.redirects {
+            return Err(failed(format!("more than {} redirects", request.redirects)));
+        }
+        let next = url::Url::parse(&url)
+            .and_then(|base| base.join(location))
+            .map_err(|e| failed(format!("a redirect to {location:?}: {e}")))?;
+        // A page that moved is fetched again with GET; 307 and 308 keep the request.
+        if matches!(reply.status, 301..=303) {
+            method = "GET";
+            body = None;
+        }
+        url = next.to_string();
+    }
+    Err(failed("too many redirects"))
 }
 
 async fn exchange(request: Request<'_>) -> Result<Reply, HttpError> {
@@ -457,6 +504,64 @@ mod tests {
         .await
         .unwrap_err();
         assert!(error.to_string().contains("line break"), "{error}");
+    }
+
+    /// A server that answers each of several connections with one of `raws`.
+    async fn serve_each(raws: Vec<&'static [u8]>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            for raw in raws {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buffer = [0u8; 4096];
+                let _ = stream.read(&mut buffer).await;
+                // The client may already have what it came for and hung up.
+                let _ = stream.write_all(raw).await;
+                let _ = stream.shutdown().await;
+            }
+        });
+        base
+    }
+
+    #[tokio::test]
+    async fn redirects_are_followed_only_as_far_as_allowed_and_a_moved_page_is_fetched_with_get() {
+        let base = serve_each(vec![
+            b"HTTP/1.1 302 Found\r\nLocation: /second\r\nContent-Length: 0\r\n\r\n",
+            b"HTTP/1.1 307 Temporary Redirect\r\nLocation: /third\r\nContent-Length: 0\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nhere",
+        ])
+        .await;
+        let url = format!("{base}/first");
+        let reply = send(Request {
+            redirects: 3,
+            ..Request::get(&url)
+        })
+        .await
+        .unwrap();
+        assert_eq!(reply.text(), "here");
+
+        // By default nothing is followed: the redirect is the answer.
+        let base = serve_each(vec![
+            b"HTTP/1.1 302 Found\r\nLocation: /x\r\nContent-Length: 0\r\n\r\n",
+        ])
+        .await;
+        let reply = send(Request::get(&format!("{base}/a"))).await.unwrap();
+        assert_eq!((reply.status, reply.header("location")), (302, Some("/x")));
+
+        // And a loop ends.
+        let base = serve_each(vec![
+            b"HTTP/1.1 302 Found\r\nLocation: /a\r\nContent-Length: 0\r\n\r\n",
+            b"HTTP/1.1 302 Found\r\nLocation: /a\r\nContent-Length: 0\r\n\r\n",
+            b"HTTP/1.1 302 Found\r\nLocation: /a\r\nContent-Length: 0\r\n\r\n",
+        ])
+        .await;
+        let error = send(Request {
+            redirects: 2,
+            ..Request::get(&format!("{base}/a"))
+        })
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("redirects"), "{error}");
     }
 
     #[tokio::test]

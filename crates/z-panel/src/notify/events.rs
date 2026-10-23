@@ -76,6 +76,11 @@ pub enum Event {
         name: String,
         days: i64,
     },
+    /// A newer version of the panel is published.
+    UpdateAvailable {
+        version: String,
+        url: String,
+    },
 }
 
 /// A message, before it is dressed for a channel: a title and some
@@ -114,6 +119,7 @@ impl Event {
             Event::CertificateRenewed { .. } => "certificate.renewed",
             Event::CertificateFailed { .. } => "certificate.failed",
             Event::CertificateExpiring { .. } => "certificate.expiring",
+            Event::UpdateAvailable { .. } => "update.available",
         }
     }
 
@@ -132,6 +138,7 @@ impl Event {
             Event::CertificateRenewed { .. }
             | Event::CertificateFailed { .. }
             | Event::CertificateExpiring { .. } => events.certificate,
+            Event::UpdateAvailable { .. } => events.update,
         }
     }
 
@@ -210,6 +217,7 @@ impl Event {
             Event::CertificateRenewed { name, days } => json!({"name": name, "days": days}),
             Event::CertificateFailed { name, error } => json!({"name": name, "error": error}),
             Event::CertificateExpiring { name, days } => json!({"name": name, "days": days}),
+            Event::UpdateAvailable { version, url } => json!({"version": version, "url": url}),
         }
     }
 
@@ -379,6 +387,16 @@ impl Event {
                         "Left",
                         pick(&format!("{days} روز"), &format!("{days} days")),
                     ),
+                ],
+            },
+            Event::UpdateAvailable { version, url } => Message {
+                title: pick(
+                    "🆕 نسخه‌ی تازه‌ی Z-UI منتشر شد",
+                    "🆕 A new version of Z-UI is out",
+                ),
+                fields: vec![
+                    field("نسخه", "Version", version.clone()),
+                    field("یادداشت‌ها", "Notes", url.clone()),
                 ],
             },
         }
@@ -556,6 +574,10 @@ mod tests {
             Event::CertificateExpiring {
                 name: "panel.example.com".into(),
                 days: 5,
+            },
+            Event::UpdateAvailable {
+                version: "0.2.0".into(),
+                url: "https://example.com/release".into(),
             },
         ];
         let mut kinds: Vec<&str> = events.iter().map(Event::kind).collect();

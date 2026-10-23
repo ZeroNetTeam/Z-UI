@@ -44,6 +44,8 @@ struct Inner {
     panel_certificate: Mutex<Option<i64>>,
     /// Held while the core's configuration changes, one change at a time.
     core_lock: tokio::sync::Mutex<()>,
+    /// What the last look for a newer version found ([`crate::update`]).
+    update: Mutex<crate::update::Status>,
     /// Held while a certificate is got or renewed: one at a time, so two do
     /// not fight over the challenge port or the authority's limits.
     cert_lock: tokio::sync::Mutex<()>,
@@ -84,6 +86,7 @@ impl AppState {
                 restart: tokio::sync::Notify::new(),
                 panel_certificate: Mutex::new(None),
                 core_lock: tokio::sync::Mutex::new(()),
+                update: Mutex::new(Default::default()),
                 cert_lock: tokio::sync::Mutex::new(()),
                 address_book: Mutex::new(Default::default()),
                 subscription: std::sync::RwLock::new(Default::default()),
@@ -162,6 +165,18 @@ impl AppState {
 
     pub fn core_lock(&self) -> &tokio::sync::Mutex<()> {
         &self.inner.core_lock
+    }
+
+    pub fn update_status(&self) -> crate::update::Status {
+        self.inner
+            .update
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    pub fn set_update_status(&self, status: crate::update::Status) {
+        *self.inner.update.lock().unwrap_or_else(|p| p.into_inner()) = status;
     }
 
     pub fn cert_lock(&self) -> &tokio::sync::Mutex<()> {

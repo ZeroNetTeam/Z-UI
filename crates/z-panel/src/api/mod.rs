@@ -22,6 +22,7 @@ mod phase9_tests;
 mod roles;
 mod subscription;
 mod tools;
+mod update;
 pub(crate) mod users;
 
 use std::sync::OnceLock;
@@ -78,6 +79,7 @@ pub const LOG_LEVEL_SETTING: &str = "log.level";
         (name = "backups", description = "Backups of the panel, and putting one back (sudo only)"),
         (name = "notifications", description = "Notifications, the Telegram bot, Discord, webhooks (sudo only)"),
         (name = "panel", description = "The panel itself"),
+        (name = "update", description = "Newer versions of the panel (sudo only)"),
     ),
 )]
 struct ApiDoc;
@@ -219,7 +221,10 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         .routes(routes!(backups::settings))
         .routes(routes!(backups::download, backups::delete))
         .routes(routes!(panel::get, panel::save))
-        .routes(routes!(panel::restart));
+        .routes(routes!(panel::restart))
+        .routes(routes!(update::get, update::settings))
+        .routes(routes!(update::check))
+        .routes(routes!(update::apply));
     // A backup is a file: the upload may be large, which the other routes may not.
     let restore = router()
         .routes(routes!(backups::restore))

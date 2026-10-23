@@ -202,7 +202,7 @@ impl Settings {
 }
 
 /// A proxy address with the password hidden.
-fn redact(proxy: &str) -> String {
+pub(crate) fn redact(proxy: &str) -> String {
     match url::Url::parse(proxy) {
         Ok(mut url) if url.password().is_some() => {
             let _ = url.set_password(Some("•••"));

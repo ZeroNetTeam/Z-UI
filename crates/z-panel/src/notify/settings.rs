@@ -84,6 +84,8 @@ pub struct Events {
     pub backup: bool,
     /// A certificate renewed, one that could not be, one about to expire.
     pub certificate: bool,
+    /// A newer version of the panel is published.
+    pub update: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -142,6 +144,7 @@ impl Default for Events {
             login_new: true,
             backup: true,
             certificate: true,
+            update: true,
         }
     }
 }

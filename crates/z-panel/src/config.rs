@@ -64,6 +64,89 @@ pub enum Command {
     /// which certificate. Changes apply when the panel next starts.
     #[command(subcommand)]
     Setting(SettingCommand),
+    /// Certificates: list them, get one from an authority, renew one.
+    #[command(subcommand)]
+    Cert(CertCommand),
+    /// Look for a newer version, put it in place, or go back to the last one.
+    #[command(subcommand)]
+    Update(UpdateCommand),
+    /// Make a backup now, in the data directory's `backups`.
+    Backup {
+        /// Also copy it here.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Put a backup back, in place of everything the panel keeps. Stop the
+    /// panel first, and start it again after.
+    Restore {
+        file: PathBuf,
+        /// For an encrypted backup.
+        #[arg(long, env = "ZUI_BACKUP_PASSPHRASE")]
+        passphrase: Option<String>,
+    },
+    /// Ask a running panel whether it answers (for a container's health
+    /// check): exits 0 if it does.
+    Health,
+}
+
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum CertCommand {
+    /// List the certificates and when they expire.
+    List,
+    /// Get a certificate from a certificate authority and add it to the store.
+    Issue {
+        /// Domain names, `*.domain` or addresses.
+        #[arg(required = true, num_args = 1..)]
+        names: Vec<String>,
+        /// `auto`, `http-01`, `tls-alpn-01` or `dns-01`.
+        #[arg(long, default_value = "auto")]
+        method: String,
+        /// A name for it; the first domain by default.
+        #[arg(long)]
+        name: Option<String>,
+        /// Do not renew it automatically.
+        #[arg(long)]
+        no_auto_renew: bool,
+        /// `letsencrypt`, `letsencrypt_staging` or `zerossl`; kept for next time.
+        #[arg(long)]
+        ca: Option<String>,
+        /// The email the authority writes to; kept for next time.
+        #[arg(long)]
+        email: Option<String>,
+        /// A Cloudflare API token for DNS challenges; kept for next time.
+        #[arg(long, env = "ZUI_CLOUDFLARE_TOKEN")]
+        cloudflare_token: Option<String>,
+        /// Print only the new certificate's id.
+        #[arg(long)]
+        porcelain: bool,
+    },
+    /// Renew a certificate from an authority now.
+    Renew { id: i64 },
+    /// Make a self-signed certificate.
+    SelfSigned {
+        #[arg(required = true, num_args = 1..)]
+        names: Vec<String>,
+        #[arg(long)]
+        name: Option<String>,
+        /// Print only the new certificate's id.
+        #[arg(long)]
+        porcelain: bool,
+    },
+}
+
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum UpdateCommand {
+    /// Say whether a newer version is published.
+    Check,
+    /// Download the newest version, check it, and put it in place of this
+    /// program; the panel is then started again to run it.
+    Apply {
+        /// Do not stop at saying what would be done.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Put back the program that was there before the last update.
+    Rollback,
 }
 
 #[derive(Debug, Clone, clap::Subcommand)]
@@ -93,6 +176,18 @@ pub enum SettingCommand {
 
 #[derive(Debug, Clone, clap::Subcommand)]
 pub enum AdminCommand {
+    /// Make an admin (a sudo one unless told otherwise): how the first is
+    /// made without the setup link.
+    Create {
+        username: String,
+        #[arg(long, env = "ZUI_NEW_PASSWORD")]
+        password: Option<String>,
+        /// Not a sudo admin: one with no role at all.
+        #[arg(long)]
+        not_sudo: bool,
+    },
+    /// List the admins.
+    List,
     /// Set a new password for an admin (a random one is printed if none is
     /// given) and end their sessions.
     ResetPassword {
