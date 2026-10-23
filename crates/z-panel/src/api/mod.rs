@@ -7,6 +7,7 @@ mod admins;
 mod api_keys;
 mod audit;
 mod auth;
+mod backups;
 mod certificates;
 mod core;
 mod groups;
@@ -14,10 +15,13 @@ mod hosts;
 mod inbounds;
 mod keys;
 mod monitor;
+mod notify;
+#[cfg(test)]
+mod phase9_tests;
 mod roles;
 mod subscription;
 mod tools;
-mod users;
+pub(crate) mod users;
 
 use std::sync::OnceLock;
 
@@ -70,6 +74,8 @@ pub const LOG_LEVEL_SETTING: &str = "log.level";
         (name = "admins", description = "Admins, roles and quotas (sudo only)"),
         (name = "api-keys", description = "My API keys"),
         (name = "audit", description = "What admins did"),
+        (name = "backups", description = "Backups of the panel, and putting one back (sudo only)"),
+        (name = "notifications", description = "Notifications, the Telegram bot, Discord, webhooks (sudo only)"),
         (name = "panel", description = "The panel itself"),
     ),
 )]
@@ -135,7 +141,10 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         .routes(routes!(auth::change_password))
         .routes(routes!(auth::totp_begin))
         .routes(routes!(auth::totp_enable))
-        .routes(routes!(auth::totp_disable));
+        .routes(routes!(auth::totp_disable))
+        .routes(routes!(notify::telegram))
+        .routes(routes!(notify::telegram_link))
+        .routes(routes!(notify::telegram_unlink));
 
     let users = router()
         .routes(routes!(users::list, users::create))
@@ -198,7 +207,16 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         .routes(routes!(admins::reset_totp))
         .routes(routes!(admins::sign_out))
         .routes(routes!(roles::list, roles::create))
-        .routes(routes!(roles::update, roles::delete));
+        .routes(routes!(roles::update, roles::delete))
+        .routes(routes!(notify::get, notify::save))
+        .routes(routes!(notify::test))
+        .routes(routes!(backups::list, backups::make))
+        .routes(routes!(backups::settings))
+        .routes(routes!(backups::download, backups::delete));
+    // A backup is a file: the upload may be large, which the other routes may not.
+    let restore = router()
+        .routes(routes!(backups::restore))
+        .layer(axum::extract::DefaultBodyLimit::max(backups::MAX_UPLOAD));
 
     vec![
         (None, open),
@@ -222,6 +240,7 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         (Some(Need::Section(Section::Audit)), audit),
         (Some(Need::SessionSection(Section::Api)), api_keys),
         (Some(Need::Sudo), admins),
+        (Some(Need::Sudo), restore),
     ]
 }
 

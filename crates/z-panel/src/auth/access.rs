@@ -19,6 +19,9 @@ use crate::server::AppState;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Via {
     Session,
+    /// A Telegram chat tied to the admin: it acts as them, as a sign-in does,
+    /// but is not a session (a password or 2FA cannot be changed from it).
+    Telegram,
     /// An API key. `full` keys may do whatever their admin may, and so may
     /// manage admins; keys limited to some permissions never may.
     Key {
@@ -61,7 +64,7 @@ impl Access {
     /// that is not limited.
     pub fn require_sudo(&self) -> ApiResult<()> {
         let unlimited = match &self.via {
-            Via::Session => true,
+            Via::Session | Via::Telegram => true,
             Via::Key { full, .. } => *full,
         };
         if self.admin.is_sudo && unlimited {
@@ -79,7 +82,7 @@ impl Access {
     pub fn require_session(&self) -> ApiResult<()> {
         match self.via {
             Via::Session => Ok(()),
-            Via::Key { .. } => Err(ApiError::forbidden(
+            Via::Telegram | Via::Key { .. } => Err(ApiError::forbidden(
                 "session_required",
                 "sign in to the panel to do this; an API key cannot",
             )),
@@ -106,6 +109,7 @@ impl Access {
     pub fn via_label(&self) -> String {
         match &self.via {
             Via::Session => "session".into(),
+            Via::Telegram => "telegram".into(),
             Via::Key { name, .. } => format!("key:{name}"),
         }
     }

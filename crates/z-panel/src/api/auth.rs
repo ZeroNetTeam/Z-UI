@@ -217,6 +217,10 @@ async fn failed_sign_in(
     address: IpAddr,
     detail: &str,
 ) {
+    state.notifier().login_failed(
+        admin.map(|admin| (admin.id, admin.username.as_str())),
+        &address.to_string(),
+    );
     let target = admin.map_or("(unknown user)", |admin| admin.username.as_str());
     audit::write(
         state,
@@ -247,6 +251,9 @@ pub async fn login(
     let address = client_address(&parts);
     let username = request.username.trim();
     if let Some(seconds) = state.limiter().locked(address, username, Instant::now()) {
+        state
+            .notifier()
+            .login_locked(&address.to_string(), seconds.div_ceil(60));
         let mut error = ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "too_many_attempts",
@@ -303,6 +310,20 @@ pub async fn login(
         }
     }
     state.limiter().succeeded(username);
+    // An address this admin has not signed in from before is worth knowing,
+    // unless it is their very first sign-in.
+    if admin.last_login_at.is_some()
+        && !state
+            .db()
+            .admin_login_seen(admin.id, &address.to_string())
+            .await?
+    {
+        state.notify(crate::notify::Event::NewLogin {
+            admin: admin.username.clone(),
+            admin_id: admin.id,
+            address: address.to_string(),
+        });
+    }
     state.db().touch_admin_login(admin.id).await?;
     let admin = refreshed(&state, admin.id).await?;
     tracing::info!(%address, username = %admin.username, "signed in");

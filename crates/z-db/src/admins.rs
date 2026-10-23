@@ -257,6 +257,10 @@ impl Database {
             .bind(id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM telegram_links WHERE kind = 'admin' AND ref_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         let deleted = sqlx::query("DELETE FROM admins WHERE id = $1")
             .bind(id)
             .execute(&mut *tx)
@@ -305,6 +309,15 @@ impl Database {
         .bind(id)
         .execute(self.pool())
         .await?;
+        Ok(())
+    }
+
+    /// End every session of every admin: after the admins were replaced
+    /// wholesale (a restore), no old session may mean whoever now has its id.
+    pub async fn end_all_admin_sessions(&self) -> Result<(), DbError> {
+        sqlx::query("UPDATE admins SET token_version = token_version + 1000000")
+            .execute(self.pool())
+            .await?;
         Ok(())
     }
 

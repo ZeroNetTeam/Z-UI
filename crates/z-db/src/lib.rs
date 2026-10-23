@@ -9,16 +9,20 @@
 mod admins;
 mod api_keys;
 mod audit;
+mod backup;
 mod certificates;
 mod inbounds;
+mod notify;
 mod roles;
 mod users;
 
 pub use admins::{plan_peak, Admin, AdminFields, Holdings};
 pub use api_keys::ApiKey;
 pub use audit::{AuditEntry, AuditQuery, NewAudit};
+pub use backup::{ExportReport, ImportReport, BACKUP_FORMAT};
 pub use certificates::Certificate;
 pub use inbounds::{Host, HostFields, Inbound, InboundFields};
+pub use notify::TelegramLink;
 pub use roles::{Role, DEFAULT_ROLES};
 pub use users::{
     AccessGroup, Device, DeviceFields, NextPlan, TrafficDelta, UsagePoint, User, UserFields,
@@ -36,12 +40,16 @@ pub enum DbError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("unsupported database URL {0:?}; use sqlite:// or postgres://")]
     Url(String),
+    /// A backup that cannot be made sense of, or does not fit this panel.
+    #[error("backup: {0}")]
+    Backup(String),
 }
 
 /// The panel's database.
 #[derive(Clone)]
 pub struct Database {
     pool: AnyPool,
+    postgres: bool,
 }
 
 /// Seconds since the Unix epoch, as the database stores times.
@@ -97,7 +105,10 @@ impl Database {
         } else {
             sqlx::migrate!("./migrations/postgres").run(&pool).await?;
         }
-        let db = Self { pool };
+        let db = Self {
+            pool,
+            postgres: !url.starts_with("sqlite:"),
+        };
         db.seed_roles().await?;
         Ok(db)
     }

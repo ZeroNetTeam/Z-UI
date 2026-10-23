@@ -21,6 +21,7 @@ zero-runtime = { path = "resources/zray-core/crates/zero-runtime" }
 zero-config = { path = "resources/zray-core/crates/zero-config" }
 zero-core = { path = "resources/zray-core/crates/zero-core" }
 zero-discovery = { path = "resources/zray-core/crates/zero-discovery" }
+zero-net = { path = "resources/zray-core/crates/zero-net" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "time", "sync", "signal", "fs"] }
 serde = { version = "1", features = ["derive"] }
@@ -50,6 +51,9 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 percent-encoding = "2"
 sha2 = "0.10"
 utoipa = "6"
+flate2 = "1"
+url = "2"
+chacha20poly1305 = "0.10"
 utoipa-axum = "0.3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }

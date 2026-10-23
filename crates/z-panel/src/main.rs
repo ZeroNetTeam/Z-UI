@@ -5,12 +5,14 @@ mod api;
 mod assets;
 mod audit;
 mod auth;
+mod backup;
 mod config;
 mod core_config;
 mod core_settings;
 mod error;
 mod jobs;
 mod monitor;
+mod notify;
 mod quota;
 mod server;
 mod subscription;
@@ -91,6 +93,8 @@ async fn main() -> anyhow::Result<()> {
     );
     state.monitor().spawn();
     state.set_subscription(subscription::load(&db).await);
+    state.set_notify_settings(notify::load(&db).await);
+    state.notifier().start(state.clone());
     // The level the admin chose last time, unless ZUI_LOG says otherwise.
     if let Ok(Some(level)) = db.setting(api::LOG_LEVEL_SETTING).await {
         let _ = state.monitor().logs.set_level(&level);
@@ -109,6 +113,9 @@ async fn main() -> anyhow::Result<()> {
         Err(error) => tracing::error!(error = %error.message, "the core did not start"),
     }
     jobs::spawn(state.clone());
+    notify::watch::spawn(state.clone());
+    notify::bot::spawn(state.clone());
+    backup::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
         .with_context(|| format!("listening on {}", config.listen))?;

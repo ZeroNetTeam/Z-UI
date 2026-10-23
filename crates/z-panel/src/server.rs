@@ -45,6 +45,12 @@ struct Inner {
     subscription: std::sync::RwLock<crate::subscription::Settings>,
     /// The host's figures and the live log ([`crate::monitor`]).
     monitor: Arc<crate::monitor::Monitor>,
+    /// What admins decided about notifications, the bot and backups.
+    notify_settings: std::sync::RwLock<crate::notify::Settings>,
+    /// Tells people what happens ([`crate::notify`]).
+    notifier: Arc<crate::notify::Notifier>,
+    /// Codes an admin sends the bot to tie a Telegram chat to themselves.
+    link_codes: Mutex<HashMap<String, (i64, Instant)>>,
 }
 
 impl AppState {
@@ -71,6 +77,9 @@ impl AppState {
                 address_book: Mutex::new(Default::default()),
                 subscription: std::sync::RwLock::new(Default::default()),
                 monitor,
+                notify_settings: std::sync::RwLock::new(Default::default()),
+                notifier: crate::notify::Notifier::new(),
+                link_codes: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -116,6 +125,38 @@ impl AppState {
 
     pub fn monitor(&self) -> &Arc<crate::monitor::Monitor> {
         &self.inner.monitor
+    }
+
+    pub fn link_codes(&self) -> std::sync::MutexGuard<'_, HashMap<String, (i64, Instant)>> {
+        self.inner
+            .link_codes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn notifier(&self) -> &Arc<crate::notify::Notifier> {
+        &self.inner.notifier
+    }
+
+    pub fn notify_settings(&self) -> crate::notify::Settings {
+        self.inner
+            .notify_settings
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    pub fn set_notify_settings(&self, settings: crate::notify::Settings) {
+        *self
+            .inner
+            .notify_settings
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = settings;
+    }
+
+    /// Tell people something that happened, without waiting.
+    pub fn notify(&self, event: crate::notify::Event) {
+        self.inner.notifier.emit(event);
     }
 
     pub fn subscription(&self) -> crate::subscription::Settings {
@@ -342,6 +383,7 @@ pub mod testing {
             crate::monitor::Monitor::new(Default::default(), dir.clone()),
         );
         *state.setup_token() = Some("setup-token".into());
+        state.notifier().start(state.clone());
         Panel {
             app: router(state.clone()),
             state,
@@ -384,6 +426,31 @@ pub mod testing {
             }
             .unwrap();
             let response = self.app.clone().oneshot(request).await.unwrap();
+            let status = response.status();
+            let headers = response.headers().clone();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            Reply {
+                status,
+                body: String::from_utf8_lossy(&body).into_owned(),
+                headers,
+            }
+        }
+
+        /// A request whose body is these raw bytes (a file upload).
+        pub async fn upload(&self, path: &str, headers: &[(&str, &str)], bytes: Vec<u8>) -> Reply {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header(header::CONTENT_TYPE, "application/octet-stream");
+            for (name, value) in headers {
+                request = request.header(*name, *value);
+            }
+            let response = self
+                .app
+                .clone()
+                .oneshot(request.body(Body::from(bytes)).unwrap())
+                .await
+                .unwrap();
             let status = response.status();
             let headers = response.headers().clone();
             let body = response.into_body().collect().await.unwrap().to_bytes();

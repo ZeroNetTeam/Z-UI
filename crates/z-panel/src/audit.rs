@@ -44,6 +44,12 @@ impl Audit {
         self.detail = detail.into();
         self
     }
+
+    /// For a caller that is not an HTTP request (the bot) and writes the
+    /// entry itself.
+    pub fn parts(&self) -> (&'static str, &str, &str) {
+        (self.action, &self.target, &self.detail)
+    }
 }
 
 impl IntoResponseParts for Audit {

@@ -461,6 +461,7 @@ impl Database {
             "DELETE FROM user_access_groups WHERE user_id = $1",
             "DELETE FROM user_usage WHERE user_id = $1",
             "DELETE FROM user_devices WHERE user_id = $1",
+            "DELETE FROM telegram_links WHERE kind = 'user' AND ref_id = $1",
         ] {
             sqlx::query(table).bind(id).execute(&mut *tx).await?;
         }

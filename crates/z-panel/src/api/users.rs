@@ -84,6 +84,12 @@ impl From<NextPlan> for z_db::NextPlan {
     }
 }
 
+impl UserView {
+    pub(crate) fn id(&self) -> i64 {
+        self.id
+    }
+}
+
 impl From<z_db::User> for UserView {
     fn from(u: z_db::User) -> Self {
         let online = u
@@ -153,6 +159,34 @@ pub struct UserInput {
     next_plan: Option<NextPlan>,
     #[serde(default)]
     hwid_limit: i64,
+}
+
+impl UserInput {
+    /// A new user with a data limit and a date and nothing else set: what a
+    /// quick "add" in a chat makes.
+    pub(crate) fn basic(
+        username: &str,
+        data_limit: i64,
+        expire_at: Option<i64>,
+        group_ids: Vec<i64>,
+    ) -> Self {
+        Self {
+            username: username.to_string(),
+            status: active(),
+            data_limit,
+            expire_at,
+            on_hold_duration: None,
+            on_hold_timeout: None,
+            reset_strategy: no_reset(),
+            ip_limit: 0,
+            speed_up: 0,
+            speed_down: 0,
+            note: String::new(),
+            group_ids,
+            next_plan: None,
+            hwid_limit: 0,
+        }
+    }
 }
 
 fn active() -> String {
@@ -828,6 +862,16 @@ pub enum BulkAction {
     },
 }
 
+impl BulkRequest {
+    /// One action on one user.
+    pub(crate) fn one(id: i64, action: BulkAction) -> Self {
+        Self {
+            ids: vec![id],
+            action,
+        }
+    }
+}
+
 impl BulkAction {
     fn name(&self) -> &'static str {
         match self {
@@ -848,6 +892,12 @@ pub struct BulkRequest {
     ids: Vec<i64>,
     #[serde(flatten)]
     action: BulkAction,
+}
+
+impl BulkResult {
+    pub(crate) fn changed(&self) -> usize {
+        self.changed
+    }
 }
 
 #[derive(Serialize, utoipa::ToSchema)]

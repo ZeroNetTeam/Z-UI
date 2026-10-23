@@ -17,6 +17,7 @@ z-node = { workspace = true }
 zero-config = { workspace = true }
 zero-core = { workspace = true }
 zero-discovery = { workspace = true }
+zero-net = { workspace = true }
 zero-runtime = { workspace = true }
 x509-parser = "0.18"
 webpki-roots = "1"
@@ -24,6 +25,7 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 axum = { workspace = true }
@@ -45,6 +47,9 @@ tokio-stream = { workspace = true }
 percent-encoding = { workspace = true }
 sha2 = { workspace = true }
 utoipa = { workspace = true }
+flate2 = { workspace = true }
+url = { workspace = true }
+chacha20poly1305 = { workspace = true }
 utoipa-axum = { workspace = true }
 rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
@@ -54,3 +59,4 @@ hyper-util = { workspace = true }
 
 [dev-dependencies]
 http-body-util = "0.1"
+sqlx = { workspace = true }

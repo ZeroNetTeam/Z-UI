@@ -1454,7 +1454,20 @@ fn operations() -> Vec<(&'static str, String, Value)> {
 
 /// A path of the document with its parameters filled in.
 fn concrete(path: &str) -> String {
-    format!("/api{}", path.replace("{id}", "1").replace("{device}", "1"))
+    let mut out = String::from("/api");
+    let mut inside = false;
+    for c in path.chars() {
+        match c {
+            '{' => {
+                inside = true;
+                out.push('1');
+            }
+            '}' => inside = false,
+            _ if !inside => out.push(c),
+            _ => {}
+        }
+    }
+    out
 }
 
 #[test]
