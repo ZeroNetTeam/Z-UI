@@ -242,7 +242,7 @@ fn locked(what: &str) -> ApiError {
     operation_id = "panel_restart",
     tag = "panel",
     summary = "Restart the panel",
-    description = "The panel answers, stops serving, and starts again with the stored settings, in about a second. Anyone signed in stays signed in.",
+    description = "The panel answers, stops serving, and starts again with the stored settings, in about a second. Sessions are not kept in memory, so they survive; a different path, or going from HTTPS to HTTP, needs a new sign-in because the cookie is scoped to the path and, over HTTPS, to HTTPS.",
     responses((status = 202, description = "Restarting"), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
 )]
 pub async fn restart(State(state): State<AppState>, _: Access) -> (StatusCode, Audit, ()) {

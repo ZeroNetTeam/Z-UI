@@ -19,6 +19,7 @@ const view: NotifySettingsView = {
     login_failed: true,
     login_new: true,
     backup: true,
+    certificate: true,
   },
   backup: { enabled: true, interval_hours: 12, keep: 5, send_telegram: false, include_usage: true, passphrase_set: true },
 };

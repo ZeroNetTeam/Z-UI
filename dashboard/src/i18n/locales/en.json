@@ -100,7 +100,7 @@
     "invalid_remark": "A name is needed.",
     "tag_taken": "Another inbound has this tag.",
     "invalid_certificate": "The certificate is not valid or the key does not match.",
-    "certificate_in_use": "An inbound still uses this certificate.",
+    "certificate_in_use": "This certificate is in use (by an inbound or for the panel's own HTTPS).",
     "certificate_missing": "This inbound's certificate was deleted.",
     "invalid_address": "An address or domain is needed.",
     "invalid_fingerprint": "Unknown fingerprint.",
@@ -151,7 +151,20 @@
     "passphrase_required": "This backup is encrypted: give its passphrase.",
     "wrong_passphrase": "The passphrase is wrong, or the file is damaged.",
     "invalid_backup": "This backup is not valid: {{message}}",
-    "restore_failed": "The restore failed: {{message}}"
+    "restore_failed": "The restore failed: {{message}}",
+    "invalid_names": "A name or address is not valid: {{message}}",
+    "invalid_method": "That way does not work for these names: {{message}}",
+    "cloudflare_needed": "A DNS challenge needs a Cloudflare token: set one in “Issuing settings”.",
+    "invalid_ca": "The authority's directory URL is not set.",
+    "invalid_proxy": "The proxy is not valid: {{message}}",
+    "ca_failed": "The authority did not give a certificate: {{message}}",
+    "not_renewable": "Only a certificate got from an authority can be renewed.",
+    "invalid_acme": "{{message}}",
+    "locked": "A flag or a ZUI_* variable fixed this; it cannot be changed here.",
+    "port_in_use": "That port cannot be used: {{message}}",
+    "invalid_listen": "The address is ip:port, like 0.0.0.0:2053.",
+    "invalid_base_path": "The path is not valid: {{message}}",
+    "path_conflict": "{{message}}"
   },
   "settings": {
     "title": "Settings",
@@ -254,8 +267,8 @@
   },
   "certificates": {
     "title": "Certificates",
-    "subtitle": "TLS certificates for inbounds",
-    "add": "Add certificate",
+    "subtitle": "TLS certificates for the panel and its inbounds; get them from an authority and they renew themselves",
+    "add": "Upload a certificate",
     "name": "Name",
     "nameHint": "Empty means the domain",
     "domains": "Domains",
@@ -267,8 +280,45 @@
     "fromFile": "From a file",
     "deleteTitle": "Delete certificate",
     "deleteBody": "“{{name}}” is deleted.",
-    "empty": "No certificate yet. Automatic Let's Encrypt arrives in phase 10; for now, upload one.",
-    "source_upload": "Upload"
+    "empty": "No certificates yet. Get a free one, make a self-signed one, or upload your own.",
+    "source_upload": "Uploaded",
+    "get": "Get a certificate",
+    "selfSigned": "Self-signed",
+    "settings": "Issuing settings",
+    "source": "Source",
+    "source_self-signed": "Self-signed",
+    "source_acme": "Authority",
+    "ca_letsencrypt": "Let's Encrypt",
+    "ca_letsencrypt_staging": "Let's Encrypt (staging)",
+    "ca_zerossl": "ZeroSSL",
+    "method_auto": "Automatic",
+    "method_http-01": "HTTP · port 80",
+    "method_tls-alpn-01": "TLS · port 443",
+    "method_dns-01": "DNS · Cloudflare",
+    "panelBadge": "Panel's certificate",
+    "renews": "Renews itself from {{date}}",
+    "notRenewing": "Automatic renewal is off",
+    "lastError": "The last renewal failed: {{error}}",
+    "renewNow": "Renew now",
+    "renewed": "“{{name}}” was renewed.",
+    "autoRenew": "Automatic renewal",
+    "issueTitle": "Get a certificate from an authority",
+    "issueBody": "Each name is proven with a challenge, and the certificate is kept here and renewed before it expires.",
+    "names": "Names",
+    "namesHint": "One per line or comma-separated: a domain, *.domain (wildcard) or an IP address",
+    "method": "How to prove the names are yours",
+    "methodAutoHint": "Port 80 if it is free, else the TLS port; with a wildcard, every name is proven with DNS.",
+    "methodHttpHint": "The authority comes to port 80 of this server from the internet; it must be open and free.",
+    "methodTlsHint": "The authority connects to port 443 of this server; if the panel is on that port it answers there.",
+    "methodDnsHint": "A TXT record is written at Cloudflare and removed again; for a domain behind a CDN, and for wildcards.",
+    "needCloudflare": "DNS and wildcards need a Cloudflare token: set one in “Issuing settings”.",
+    "autoRenewHint": "It renews itself before it expires, and the panel and inbounds take the new one without a break.",
+    "certificateName": "Name (optional)",
+    "issue": "Get the certificate",
+    "issuing": "Getting the certificate… it takes up to two minutes; keep this page open.",
+    "selfSignedTitle": "Make a self-signed certificate",
+    "selfSignedBody": "For where no authority's certificate will do. Clients do not trust it unless told to. It does not renew and is valid for five years.",
+    "make": "Make"
   },
   "hosts": {
     "title": "Hosts",
@@ -943,7 +993,10 @@
       "admin": "Admin",
       "role": "Role",
       "api_key": "API key",
-      "auth": "Sign-in and account"
+      "auth": "Sign-in and account",
+      "backup": "Backup",
+      "notifications": "Notifications",
+      "panel": "Panel"
     },
     "action": {
       "auth": {
@@ -952,7 +1005,10 @@
         "password": "Changed password",
         "2fa_begin": "Started two-factor setup",
         "2fa_enable": "Turned two-factor sign-in on",
-        "2fa_disable": "Turned two-factor sign-in off"
+        "2fa_disable": "Turned two-factor sign-in off",
+        "telegram_link": "Made a Telegram link code",
+        "telegram_linked": "Linked a Telegram chat",
+        "telegram_unlink": "Unlinked a Telegram chat"
       },
       "user": {
         "create": "Made a user",
@@ -990,7 +1046,12 @@
       },
       "certificate": {
         "create": "Added a certificate",
-        "delete": "Deleted a certificate"
+        "delete": "Deleted a certificate",
+        "issue": "Got a certificate from an authority",
+        "self_signed": "Made a self-signed certificate",
+        "renew": "Renewed a certificate",
+        "update": "Changed a certificate",
+        "settings": "Changed the issuing settings"
       },
       "core": {
         "save": "Saved the core's settings",
@@ -1018,6 +1079,20 @@
       "api_key": {
         "create": "Made an API key",
         "delete": "Revoked an API key"
+      },
+      "backup": {
+        "make": "Made a backup",
+        "delete": "Deleted a backup",
+        "restore": "Restored a backup",
+        "settings": "Changed the backup settings"
+      },
+      "notifications": {
+        "save": "Changed the notification settings",
+        "test": "Sent a test notification"
+      },
+      "panel": {
+        "save": "Changed the panel's address or HTTPS",
+        "restart": "Restarted the panel"
       }
     }
   },
@@ -1148,7 +1223,9 @@
     "testedTelegram_other": "Delivered to {{count, number}} chats.",
     "unsaved": "Unsaved changes",
     "nothingToSave": "Nothing to save.",
-    "badChats": "These are not chat ids: {{words}}"
+    "badChats": "These are not chat ids: {{words}}",
+    "event_certificate": "Certificates",
+    "event_certificateHint": "Renewed, could not be renewed, or one that does not renew itself is about to expire."
   },
   "telegramLink": {
     "title": "My Telegram",
@@ -1215,5 +1292,58 @@
     "restoredBody": "The panel is now as it was on {{when}}. Sign in again.",
     "safety": "Safety copy",
     "signInAgain": "Sign in again"
+  },
+  "acme": {
+    "title": "Issuing settings",
+    "subtitle": "Which authority, with which email, and on which ports the challenges are answered.",
+    "ca": "Authority",
+    "ca_letsencrypt": "Let's Encrypt",
+    "ca_letsencrypt_staging": "Let's Encrypt · staging (its certificates are not trusted, its limits are loose)",
+    "ca_zerossl": "ZeroSSL",
+    "ca_custom": "Another (ACME)",
+    "directory": "Directory URL",
+    "email": "Email",
+    "emailHint": "The authority writes here before a certificate expires. ZeroSSL needs one.",
+    "eabKid": "Account key id (EAB)",
+    "eabHmac": "Account HMAC key (EAB)",
+    "eabHint": "ZeroSSL and some others give accounts only with a key. For ZeroSSL, leave empty and it is fetched with the email.",
+    "clearEab": "Clear the account key",
+    "cloudflare": "Cloudflare API token",
+    "cloudflareHint": "Only for DNS challenges and wildcards; the permission Zone → DNS → Edit is enough. It is not shown again once saved.",
+    "clearCloudflare": "Clear the token",
+    "secretSet": "set",
+    "httpPort": "HTTP challenge port",
+    "httpPortHint": "The authority always asks on port 80: change this only if that is forwarded to it.",
+    "tlsPort": "TLS challenge port",
+    "renewDays": "Start renewing (days left)",
+    "renewDaysHint": "A short-lived certificate (for an IP) starts at a third of its life.",
+    "dnsWait": "Wait after writing a DNS record (seconds)",
+    "proxy": "Proxy for the authority and Cloudflare",
+    "proxyHint": "http://… or socks5://…; empty is direct.",
+    "account": "Account with this authority",
+    "accountReady": "made",
+    "accountNone": "made with the first certificate",
+    "saved": "Saved."
+  },
+  "panelAccess": {
+    "title": "Panel address and HTTPS",
+    "body": "The port, the secret path and the HTTPS certificate of the panel itself. The address and path apply after a restart.",
+    "listen": "Address and port",
+    "listenHint": "Like 0.0.0.0:2053; with 127.0.0.1 it is only seen behind a proxy.",
+    "path": "Path",
+    "pathHint": "The panel answers only under this path, and anywhere else is a 404.",
+    "certificate": "HTTPS certificate",
+    "none": "No HTTPS (plain HTTP)",
+    "certificateHint": "Get a certificate on the Certificates page. Swapping it for another applies at once; going from HTTP to HTTPS or back needs a restart.",
+    "locked": "Fixed by a flag or a ZUI_* variable; it cannot be changed here.",
+    "save": "Save",
+    "saved": "Saved.",
+    "restartNeeded": "Saved. It applies after a restart.",
+    "restart": "Restart the panel",
+    "restartTitle": "Restart?",
+    "restartBody": "The panel is out of reach for a few seconds, then opens at the new address. If the path changes, or you go from HTTPS to HTTP, you sign in again.",
+    "restarting": "The panel is starting again… in a few seconds you are taken to the new address.",
+    "warning": "A wrong address or path puts the panel out of reach; on the server, z-ui setting reset puts everything back to the defaults.",
+    "sudoOnly": "Sudo admins only"
   }
 }

@@ -146,10 +146,75 @@ export interface Certificate {
   id: number;
   name: string;
   domains: string[];
+  /** `upload`, `acme` or `self-signed`. */
   source: string;
   not_before: number;
   not_after: number;
   created_at: number;
+  auto_renew: boolean;
+  /** `http-01`, `tls-alpn-01` or `dns-01` for one from an authority. */
+  method: string;
+  /** `letsencrypt`, `letsencrypt_staging`, `zerossl` or a directory URL. */
+  ca: string;
+  last_error: string;
+  last_attempt_at: number;
+  renews_at: number | null;
+  /** Whether the panel itself serves HTTPS with it. */
+  panel: boolean;
+}
+
+export type AcmeCa = "letsencrypt" | "letsencrypt_staging" | "zerossl" | "custom";
+export type ChallengeMethod = "auto" | "http-01" | "tls-alpn-01" | "dns-01";
+
+export interface AcmeView {
+  ca: AcmeCa;
+  directory_url: string;
+  email: string;
+  eab_kid: string;
+  eab_hmac_set: boolean;
+  cloudflare_token_set: boolean;
+  http_port: number;
+  tls_port: number;
+  renew_days: number;
+  proxy: string;
+  dns_wait: number;
+  account_ready: boolean;
+}
+
+export interface AcmeInput {
+  ca: AcmeCa;
+  directory_url: string;
+  email: string;
+  eab_kid: string;
+  /** Empty keeps the stored key. */
+  eab_hmac: string;
+  clear_eab: boolean;
+  /** Empty keeps the stored token. */
+  cloudflare_token: string;
+  clear_cloudflare: boolean;
+  http_port: number;
+  tls_port: number;
+  renew_days: number;
+  proxy: string;
+  dns_wait: number;
+}
+
+export interface PanelView {
+  listen: string;
+  base_path: string;
+  certificate_id: number | null;
+  tls: boolean;
+  locked: { listen: boolean; base_path: boolean; certificate: boolean };
+  stored_listen: string;
+  stored_base_path: string;
+  stored_certificate_id: number | null;
+  restart_required: boolean;
+}
+
+export interface PanelInput {
+  listen: string;
+  base_path: string;
+  certificate_id: number | null;
 }
 
 export interface Host {
@@ -521,6 +586,7 @@ export interface NotifyEvents {
   login_failed: boolean;
   login_new: boolean;
   backup: boolean;
+  certificate: boolean;
 }
 
 export interface BackupSettingsView {

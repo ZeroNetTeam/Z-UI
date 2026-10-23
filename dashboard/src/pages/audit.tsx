@@ -17,7 +17,7 @@ import { formatDate } from "@/lib/users";
 import { cn } from "@/lib/utils";
 
 /** The kinds of action the filter offers: the part of the name before the dot. */
-const kinds = ["user", "group", "template", "inbound", "host", "certificate", "core", "settings", "logs", "admin", "role", "api_key", "auth"];
+const kinds = ["user", "group", "template", "inbound", "host", "certificate", "core", "settings", "logs", "admin", "role", "api_key", "auth", "backup", "notifications", "panel"];
 
 const PAGE = 50;
 

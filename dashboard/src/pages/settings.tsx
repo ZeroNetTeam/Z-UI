@@ -3,6 +3,7 @@ import { CheckIcon, CopyIcon, ShieldCheckIcon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { FormError } from "@/components/form-error";
+import { PanelAccessCard } from "@/components/panel-access";
 import { PageHeader } from "@/components/layout/layout";
 import { SubscriptionSettingsCard } from "@/components/subscription-settings";
 import { TelegramLinkCard } from "@/components/telegram-link";
@@ -234,6 +235,7 @@ export function SettingsPage() {
             <SubscriptionSettingsCard />
           </fieldset>
         )}
+        {can(admin, "sudo") && <PanelAccessCard />}
         <PasswordCard />
         {admin && <TotpCard admin={admin} />}
         <TelegramLinkCard />

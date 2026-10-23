@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileKey2Icon, PlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
+import { FileKey2Icon, KeyRoundIcon, Loader2Icon, RefreshCwIcon, SettingsIcon, ShieldPlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { AcmeSettingsDialog, IssueCertificateDialog, SelfSignedDialog } from "@/components/certificate-dialogs";
 import { Confirm } from "@/components/confirm";
 import { FormError } from "@/components/form-error";
 import { Can } from "@/components/can";
@@ -12,9 +13,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TextareaField } from "@/components/ui/textarea";
-import { del, post, type Certificate } from "@/lib/api";
+import { del, post, put, type Certificate } from "@/lib/api";
 import { useOpenFromLink } from "@/lib/open-from-link";
 import { useCertificates } from "./inbounds";
 
@@ -102,23 +104,60 @@ export function CertificatesPage() {
   const { t, i18n } = useTranslation();
   const client = useQueryClient();
   const certificates = useCertificates();
-  const [open, setOpen] = useState(false);
-  useOpenFromLink("certificate", () => setOpen(true));
+  const [upload, setUpload] = useState(false);
+  const [issue, setIssue] = useState(false);
+  const [selfSigned, setSelfSigned] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  useOpenFromLink("certificate", () => setIssue(true));
   const now = Date.now() / 1000;
   const date = (seconds: number) =>
     new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium" }).format(new Date(seconds * 1000));
+  const refresh = () => client.invalidateQueries({ queryKey: ["certificates"] });
+  const renew = useMutation({
+    mutationFn: (id: number) => post<Certificate>(`certificates/${id}/renew`),
+    onSuccess: async (renewed) => {
+      await refresh();
+      setNotice(t("certificates.renewed", { name: renewed.name }));
+    },
+    onError: () => setNotice(null),
+  });
+  const toggle = useMutation({
+    mutationFn: ({ id, on }: { id: number; on: boolean }) => put<Certificate>(`certificates/${id}`, { auto_renew: on }),
+    onSuccess: refresh,
+  });
+  const origin = (certificate: Certificate) =>
+    certificate.source === "acme"
+      ? `${t(`certificates.ca_${certificate.ca}`, { defaultValue: certificate.ca })} · ${t(`certificates.method_${certificate.method || "auto"}`)}`
+      : t(`certificates.source_${certificate.source}`, { defaultValue: certificate.source });
 
   return (
     <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader title={t("certificates.title")} subtitle={t("certificates.subtitle")} />
         <Can perm="certificates.write">
-<Button onClick={() => setOpen(true)}>
-          <PlusIcon /> {t("certificates.add")}
-        </Button>
-</Can>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setIssue(true)}>
+              <ShieldPlusIcon /> {t("certificates.get")}
+            </Button>
+            <Button variant="outline" onClick={() => setSelfSigned(true)}>
+              <KeyRoundIcon /> {t("certificates.selfSigned")}
+            </Button>
+            <Button variant="outline" onClick={() => setUpload(true)}>
+              <UploadIcon /> {t("certificates.add")}
+            </Button>
+            <Button variant="ghost" size="icon" aria-label={t("certificates.settings")} title={t("certificates.settings")} onClick={() => setSettings(true)}>
+              <SettingsIcon />
+            </Button>
+          </div>
+        </Can>
       </div>
-      <FormError error={certificates.error} />
+      <FormError error={certificates.error ?? renew.error ?? toggle.error} />
+      {notice && (
+        <p role="status" className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+          {notice}
+        </p>
+      )}
       <Card>
         <CardContent className="p-0">
           {certificates.isPending ? (
@@ -136,6 +175,7 @@ export function CertificatesPage() {
                 <TableRow>
                   <TableHead>{t("certificates.name")}</TableHead>
                   <TableHead>{t("certificates.domains")}</TableHead>
+                  <TableHead>{t("certificates.source")}</TableHead>
                   <TableHead>{t("certificates.expires")}</TableHead>
                   <TableHead className="text-end">{t("common.actions")}</TableHead>
                 </TableRow>
@@ -143,9 +183,17 @@ export function CertificatesPage() {
               <TableBody>
                 {certificates.data?.map((certificate) => {
                   const days = Math.floor((certificate.not_after - now) / 86400);
+                  const renewing = renew.isPending && renew.variables === certificate.id;
                   return (
                     <TableRow key={certificate.id}>
-                      <TableCell className="font-medium">{certificate.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <div>{certificate.name}</div>
+                        {certificate.panel && (
+                          <Badge variant="default" className="mt-1">
+                            {t("certificates.panelBadge")}
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1" dir="ltr">
                           {certificate.domains.map((domain) => (
@@ -156,32 +204,68 @@ export function CertificatesPage() {
                         </div>
                       </TableCell>
                       <TableCell>
+                        <Badge variant="secondary">{origin(certificate)}</Badge>
+                      </TableCell>
+                      <TableCell>
                         <div>{date(certificate.not_after)}</div>
                         <Badge variant={days < 0 ? "destructive" : days < 14 ? "default" : "success"} className="mt-1">
                           {days < 0
                             ? t("certificates.expired")
                             : t("certificates.daysLeft", { days: new Intl.NumberFormat(i18n.language).format(days) })}
                         </Badge>
+                        {certificate.source === "acme" &&
+                          (certificate.last_error ? (
+                            <p className="mt-1 max-w-64 text-xs text-destructive" title={certificate.last_error}>
+                              {t("certificates.lastError", { error: certificate.last_error })}
+                            </p>
+                          ) : certificate.auto_renew && certificate.renews_at ? (
+                            <p className="mt-1 text-xs text-muted-foreground">{t("certificates.renews", { date: date(certificate.renews_at) })}</p>
+                          ) : (
+                            <p className="mt-1 text-xs text-muted-foreground">{t("certificates.notRenewing")}</p>
+                          ))}
                       </TableCell>
                       <TableCell>
                         <Can perm="certificates.write">
-<div className="flex justify-end">
-                          <Confirm
-                            title={t("certificates.deleteTitle")}
-                            body={t("certificates.deleteBody", { name: certificate.name })}
-                            action={t("common.delete")}
-                            onConfirm={async () => {
-                              await del(`certificates/${certificate.id}`);
-                              await client.invalidateQueries({ queryKey: ["certificates"] });
-                            }}
-                            trigger={(confirm) => (
-                              <Button variant="ghost" size="icon" aria-label={t("common.delete")} onClick={confirm}>
-                                <Trash2Icon className="text-destructive" />
-                              </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            {certificate.source === "acme" && (
+                              <>
+                                <Switch
+                                  label={t("certificates.autoRenew")}
+                                  checked={certificate.auto_renew}
+                                  disabled={toggle.isPending}
+                                  onCheckedChange={(on) => toggle.mutate({ id: certificate.id, on })}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={t("certificates.renewNow")}
+                                  title={t("certificates.renewNow")}
+                                  disabled={renew.isPending}
+                                  onClick={() => {
+                                    setNotice(null);
+                                    renew.mutate(certificate.id);
+                                  }}
+                                >
+                                  {renewing ? <Loader2Icon className="animate-spin" /> : <RefreshCwIcon />}
+                                </Button>
+                              </>
                             )}
-                          />
-                        </div>
-</Can>
+                            <Confirm
+                              title={t("certificates.deleteTitle")}
+                              body={t("certificates.deleteBody", { name: certificate.name })}
+                              action={t("common.delete")}
+                              onConfirm={async () => {
+                                await del(`certificates/${certificate.id}`);
+                                await refresh();
+                              }}
+                              trigger={(confirm) => (
+                                <Button variant="ghost" size="icon" aria-label={t("common.delete")} onClick={confirm}>
+                                  <Trash2Icon className="text-destructive" />
+                                </Button>
+                              )}
+                            />
+                          </div>
+                        </Can>
                       </TableCell>
                     </TableRow>
                   );
@@ -191,7 +275,10 @@ export function CertificatesPage() {
           )}
         </CardContent>
       </Card>
-      <AddCertificate open={open} onOpenChange={setOpen} />
+      <AddCertificate open={upload} onOpenChange={setUpload} />
+      <IssueCertificateDialog open={issue} onOpenChange={setIssue} />
+      <SelfSignedDialog open={selfSigned} onOpenChange={setSelfSigned} />
+      <AcmeSettingsDialog open={settings} onOpenChange={setSettings} />
     </>
   );
 }
