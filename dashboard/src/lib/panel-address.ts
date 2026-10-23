@@ -12,3 +12,19 @@ export function addressAfterRestart(view: PanelView, from: URL): URL {
   next.hash = "";
   return next;
 }
+
+/** Wait for the panel to answer at `url`, then go there. A different origin
+ * cannot be read, so any answer at all (even an opaque one) is enough; and
+ * after a while the browser goes anyway, to show whatever it finds. */
+export function goWhenUp(url: URL) {
+  let tries = 0;
+  const timer = setInterval(() => {
+    tries += 1;
+    const go = () => {
+      clearInterval(timer);
+      location.assign(url.toString());
+    };
+    if (tries > 25) return go();
+    fetch(new URL("api/auth/state", url), { mode: "no-cors", cache: "no-store" }).then(go, () => undefined);
+  }, 1000);
+}

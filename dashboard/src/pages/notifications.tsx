@@ -60,7 +60,7 @@ function TestButton({ channel, disabled }: { channel: NotifyChannel; disabled: b
   );
 }
 
-const eventRows: { key: "data_low" | "expiring" | "limited" | "expired" | "core" | "login_failed" | "login_new" | "backup" | "certificate" }[] = [
+const eventRows: { key: "data_low" | "expiring" | "limited" | "expired" | "core" | "login_failed" | "login_new" | "backup" | "certificate" | "update" }[] = [
   { key: "data_low" },
   { key: "expiring" },
   { key: "limited" },
@@ -70,6 +70,7 @@ const eventRows: { key: "data_low" | "expiring" | "limited" | "expired" | "core"
   { key: "login_new" },
   { key: "backup" },
   { key: "certificate" },
+  { key: "update" },
 ];
 
 export function NotificationsPage() {

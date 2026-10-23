@@ -164,7 +164,10 @@
     "port_in_use": "That port cannot be used: {{message}}",
     "invalid_listen": "The address is ip:port, like 0.0.0.0:2053.",
     "invalid_base_path": "The path is not valid: {{message}}",
-    "path_conflict": "{{message}}"
+    "path_conflict": "{{message}}",
+    "update_failed": "The update did not work: {{message}}",
+    "up_to_date": "This is the newest version.",
+    "container": "This panel runs in a container; it is updated by pulling a new image."
   },
   "settings": {
     "title": "Settings",
@@ -996,7 +999,8 @@
       "auth": "Sign-in and account",
       "backup": "Backup",
       "notifications": "Notifications",
-      "panel": "Panel"
+      "panel": "Panel",
+      "update": "Updates"
     },
     "action": {
       "auth": {
@@ -1093,6 +1097,11 @@
       "panel": {
         "save": "Changed the panel's address or HTTPS",
         "restart": "Restarted the panel"
+      },
+      "update": {
+        "check": "Looked for a new version",
+        "apply": "Updated the panel",
+        "settings": "Changed the update settings"
       }
     }
   },
@@ -1225,7 +1234,9 @@
     "nothingToSave": "Nothing to save.",
     "badChats": "These are not chat ids: {{words}}",
     "event_certificate": "Certificates",
-    "event_certificateHint": "Renewed, could not be renewed, or one that does not renew itself is about to expire."
+    "event_certificateHint": "Renewed, could not be renewed, or one that does not renew itself is about to expire.",
+    "event_update": "New version",
+    "event_updateHint": "A newer version of Z-UI is published."
   },
   "telegramLink": {
     "title": "My Telegram",
@@ -1345,5 +1356,27 @@
     "restarting": "The panel is starting again… in a few seconds you are taken to the new address.",
     "warning": "A wrong address or path puts the panel out of reach; on the server, z-ui setting reset puts everything back to the defaults.",
     "sudoOnly": "Sudo admins only"
+  },
+  "update": {
+    "title": "Updates",
+    "body": "Get the panel's newer version from its releases. Every release is signed, and the panel takes only one that carries the maintainers' signature.",
+    "current": "Running",
+    "newest": "Newest",
+    "available": "Version {{version}} is out.",
+    "notes": "Release notes",
+    "upToDate": "This is the newest version (last looked {{when}}).",
+    "neverChecked": "Not looked yet.",
+    "lastError": "The last look failed: {{error}}",
+    "container": "This panel runs in a container; it is updated by pulling a new image, not from here.",
+    "cannotApply": "The program's directory cannot be written, so the panel cannot replace itself; update from the server with z-ui update apply.",
+    "checkNow": "Look now",
+    "apply": "Update",
+    "applyTitle": "Update to {{version}}?",
+    "applyBody": "The new version is downloaded and its signature checked, it is started once to see that it is right, and then it takes the place of this one (which is kept). The panel is out of reach for a few seconds.",
+    "restarting": "The new version is in place and the panel is starting again… the page opens in a few seconds.",
+    "check": "Look automatically",
+    "checkHint": "Looks every few hours and says in Notifications when there is something new.",
+    "proxy": "Proxy for the release server",
+    "proxyHint": "If GitHub is closed from your server: http://… or socks5://…; empty is direct."
   }
 }

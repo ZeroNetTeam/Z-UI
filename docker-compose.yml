@@ -1,0 +1,27 @@
+# Z-UI with Docker Compose:   docker compose up -d
+#
+# Host networking, because the inbounds you add in the panel listen on ports
+# of their own; with a bridge network every one would have to be published.
+# The panel then listens on 2053 of the host (change it in the panel, under
+# Settings; a ZUI_LISTEN here would fix it and hide it from there).
+#
+# Everything is kept in ./data (the database, backups and certificates), so
+# keep that directory safe and out of version control.
+
+services:
+  z-ui:
+    image: ghcr.io/zeronetteam/z-ui:latest
+    container_name: z-ui
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/data
+    environment:
+      # The first admin, made when the panel starts with no admin at all.
+      # Without these, the setup link is printed in the log: docker compose logs z-ui
+      ZUI_ADMIN_USER: admin
+      ZUI_ADMIN_PASSWORD: change-this-long-password
+      # A secret path for the panel (then it cannot be changed from the panel):
+      # ZUI_BASE_PATH: /my-secret-path
+      # How much the log says, and about what:
+      # ZUI_LOG: info

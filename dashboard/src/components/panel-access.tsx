@@ -9,25 +9,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field } from "@/components/ui/field";
 import { SelectField } from "@/components/ui/select";
 import { api, post, put, type PanelInput, type PanelView } from "@/lib/api";
-import { addressAfterRestart } from "@/lib/panel-address";
+import { addressAfterRestart, goWhenUp } from "@/lib/panel-address";
 import { useCertificates } from "@/pages/inbounds";
 
 const key = ["panel"] as const;
-
-/** Wait for the panel to answer at `url`, then go there. A different origin
- * cannot be read, so any answer at all (even an opaque one) is enough. */
-function goWhenUp(url: URL) {
-  let tries = 0;
-  const timer = setInterval(() => {
-    tries += 1;
-    const go = () => {
-      clearInterval(timer);
-      location.assign(url.toString());
-    };
-    if (tries > 25) return go();
-    fetch(new URL("api/auth/state", url), { mode: "no-cors", cache: "no-store" }).then(go, () => undefined);
-  }, 1000);
-}
 
 function PanelForm({ view }: { view: PanelView }) {
   const { t } = useTranslation();

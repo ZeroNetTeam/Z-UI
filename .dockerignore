@@ -1,0 +1,13 @@
+# What a build does not need, and what must not leak into an image.
+.git
+.github
+target
+data
+node_modules
+dashboard/node_modules
+dashboard/dist
+resources
+*.db
+*.db-shm
+*.db-wal
+.env

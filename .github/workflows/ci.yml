@@ -27,6 +27,11 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # The installer and the menu: shellcheck, then a whole install into a
+      # temporary root with the program just built.
+      - run: shellcheck -S error install.sh deploy/z-ui.sh deploy/tests/run.sh
+      - run: cargo build -p z-panel
+      - run: bash deploy/tests/run.sh
 
   dashboard:
     runs-on: ubuntu-latest

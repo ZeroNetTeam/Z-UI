@@ -7,6 +7,7 @@ import { PanelAccessCard } from "@/components/panel-access";
 import { PageHeader } from "@/components/layout/layout";
 import { SubscriptionSettingsCard } from "@/components/subscription-settings";
 import { TelegramLinkCard } from "@/components/telegram-link";
+import { UpdateCard } from "@/components/update-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -236,6 +237,7 @@ export function SettingsPage() {
           </fieldset>
         )}
         {can(admin, "sudo") && <PanelAccessCard />}
+        {can(admin, "sudo") && <UpdateCard />}
         <PasswordCard />
         {admin && <TotpCard admin={admin} />}
         <TelegramLinkCard />

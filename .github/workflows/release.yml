@@ -1,0 +1,218 @@
+name: Release
+
+# A tag like v0.2.0 makes a release: a program for x86_64 and one for aarch64
+# (linked against an old glibc, so they run on CentOS 7 and on, and on any
+# newer system), the installer, the checksums, their signature, and a
+# container image.
+#
+# It needs one secret, Z_UI_SIGNING_KEY: the PEM of the Ed25519 private key
+# whose public half is built into the panel (SIGNING_KEY in
+# crates/z-panel/src/update/mod.rs and in install.sh). Without it nothing
+# is published: a panel only takes updates that carry the signature.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CORE_REPOSITORY: ZeroNetTeam/Zray-Core
+  CORE_REF: main
+  CARGO_TERM_COLOR: always
+  # The oldest glibc the programs need.
+  GLIBC: "2.17"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag is the version the program says it is
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          declared="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)"/\1/')"
+          if [ "$version" != "$declared" ]; then
+            echo "::error::the tag is $tag but Cargo.toml says $declared; the panel refuses an update that does not say the version it was published as"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: The signing key is set, and is the one the panel trusts
+        env:
+          KEY: ${{ secrets.Z_UI_SIGNING_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::the secret Z_UI_SIGNING_KEY is not set, so the release cannot be signed"
+            exit 1
+          fi
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key.pem"
+          derived="$(openssl pkey -in "$RUNNER_TEMP/key.pem" -pubout -outform DER | tail -c 32 | base64 -w0)"
+          trusted="$(grep -o '^SIGNING_KEY="[^"]*"' install.sh | sed 's/^[^"]*"//; s/"$//')"
+          rm -f "$RUNNER_TEMP/key.pem"
+          if [ "$derived" != "$trusted" ]; then
+            echo "::error::the secret is not the private half of the key the panel trusts ($trusted)"
+            exit 1
+          fi
+      - name: The scripts pass shellcheck
+        run: |
+          sudo apt-get install -y shellcheck >/dev/null
+          shellcheck -S error install.sh deploy/z-ui.sh deploy/tests/run.sh
+
+  dashboard:
+    needs: check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard
+          path: dashboard/dist
+          retention-days: 1
+
+  build:
+    needs: [check, dashboard]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CORE_REPOSITORY }}
+          ref: ${{ env.CORE_REF }}
+          path: resources/zray-core
+      - uses: actions/download-artifact@v4
+        with:
+          name: dashboard
+          path: dashboard/dist
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: mlugg/setup-zig@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+      - name: Build
+        run: cargo zigbuild --release --locked -p z-panel --target ${{ matrix.target }}.${{ env.GLIBC }}
+      - name: Pack
+        run: |
+          set -euo pipefail
+          name="z-ui-${GITHUB_REF_NAME}"
+          mkdir -p "pack/$name"
+          cp "target/${{ matrix.target }}/release/z-ui" "pack/$name/z-ui"
+          cp deploy/z-ui.sh "pack/$name/z-ui.sh"
+          cp LICENSE NOTICE.md "pack/$name/"
+          tar -czf "z-ui-linux-${{ matrix.arch }}.tar.gz" -C pack "$name"
+          # What was built must at least say what it is, where it can run here.
+          if [ "${{ matrix.arch }}" = amd64 ]; then
+            "pack/$name/z-ui" --version | grep -q "${GITHUB_REF_NAME#v}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z-ui-linux-${{ matrix.arch }}
+          path: z-ui-linux-${{ matrix.arch }}.tar.gz
+          retention-days: 1
+
+  release:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: z-ui-linux-*
+          merge-multiple: true
+          path: out
+      - name: Checksums, and a signature of them
+        env:
+          KEY: ${{ secrets.Z_UI_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          cd out
+          sha256sum z-ui-linux-*.tar.gz > SHA256SUMS
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key.pem"
+          openssl pkeyutl -sign -inkey "$RUNNER_TEMP/key.pem" -rawin -in SHA256SUMS -out SHA256SUMS.sig
+          rm -f "$RUNNER_TEMP/key.pem"
+          # Checked the way the installer checks it, with the key in install.sh.
+          trusted="$(grep -o '^SIGNING_KEY="[^"]*"' ../install.sh | sed 's/^[^"]*"//; s/"$//')"
+          { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; printf '%s' "$trusted" | base64 -d; } > key.der
+          openssl pkey -pubin -inform DER -in key.der -out key.pem
+          openssl pkeyutl -verify -pubin -inkey key.pem -rawin -in SHA256SUMS -sigfile SHA256SUMS.sig
+          rm -f key.der key.pem
+          cp ../install.sh install.sh
+          ls -l
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/z-ui-linux-amd64.tar.gz
+            out/z-ui-linux-arm64.tar.gz
+            out/SHA256SUMS
+            out/SHA256SUMS.sig
+            out/install.sh
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  image:
+    needs: [check, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: z-ui-linux-*
+          merge-multiple: true
+          path: out
+      - name: The programs, where the Dockerfile looks for them
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            tar -xzf "out/z-ui-linux-$arch.tar.gz" -C out
+            cp out/z-ui-*/z-ui "dist/z-ui-linux-$arch"
+            rm -rf out/z-ui-*/
+          done
+          ls -l dist
+      - name: The image's name, in lower case
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/z-ui" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prebuilt
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ needs.check.outputs.version }}
+            ${{ steps.image.outputs.name }}:latest

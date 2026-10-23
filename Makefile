@@ -2,7 +2,7 @@
 
 DASHBOARD := dashboard
 
-.PHONY: all dashboard panel dev test lint clean
+.PHONY: all dashboard panel dev test test-scripts lint docker clean
 
 all: panel
 
@@ -22,6 +22,16 @@ dev:
 test:
 	cargo test --workspace
 	npm --prefix $(DASHBOARD) test
+	$(MAKE) test-scripts
+
+# The installer and the menu, into a temporary root, with a program built here.
+test-scripts:
+	cargo build -p z-panel
+	bash deploy/tests/run.sh
+
+# An image built from source (it fetches zray-core itself).
+docker:
+	docker build -t z-ui .
 
 lint:
 	cargo fmt --all -- --check

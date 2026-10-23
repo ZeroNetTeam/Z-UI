@@ -587,6 +587,7 @@ export interface NotifyEvents {
   login_new: boolean;
   backup: boolean;
   certificate: boolean;
+  update: boolean;
 }
 
 export interface BackupSettingsView {
@@ -711,4 +712,26 @@ export function upload<T>(path: string, body: Blob, headers: Record<string, stri
     headers: { "Content-Type": "application/octet-stream", ...headers },
     body,
   });
+}
+
+export interface UpdateInfo {
+  current: string;
+  version: string;
+  tag: string;
+  notes: string;
+  url: string;
+  published_at: string;
+  available: boolean;
+}
+
+export interface UpdateView {
+  current: string;
+  latest: UpdateInfo | null;
+  /** Unix seconds of the last look; 0 for never. */
+  checked_at: number;
+  error: string | null;
+  can_apply: boolean;
+  container: boolean;
+  check: boolean;
+  proxy: string;
 }
