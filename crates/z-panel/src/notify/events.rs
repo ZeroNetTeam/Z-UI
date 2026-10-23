@@ -61,6 +61,21 @@ pub enum Event {
     BackupFailed {
         error: String,
     },
+    /// A certificate the panel renewed itself.
+    CertificateRenewed {
+        name: String,
+        days: i64,
+    },
+    /// A renewal that did not work.
+    CertificateFailed {
+        name: String,
+        error: String,
+    },
+    /// A certificate that is close to expiry and not renewing itself.
+    CertificateExpiring {
+        name: String,
+        days: i64,
+    },
 }
 
 /// A message, before it is dressed for a channel: a title and some
@@ -96,6 +111,9 @@ impl Event {
             Event::NewLogin { .. } => "login.new",
             Event::BackupDone { .. } => "backup.done",
             Event::BackupFailed { .. } => "backup.failed",
+            Event::CertificateRenewed { .. } => "certificate.renewed",
+            Event::CertificateFailed { .. } => "certificate.failed",
+            Event::CertificateExpiring { .. } => "certificate.expiring",
         }
     }
 
@@ -111,6 +129,9 @@ impl Event {
             Event::LoginFailed { .. } | Event::LoginLocked { .. } => events.login_failed,
             Event::NewLogin { .. } => events.login_new,
             Event::BackupDone { .. } | Event::BackupFailed { .. } => events.backup,
+            Event::CertificateRenewed { .. }
+            | Event::CertificateFailed { .. }
+            | Event::CertificateExpiring { .. } => events.certificate,
         }
     }
 
@@ -186,6 +207,9 @@ impl Event {
                 json!({"file": file, "bytes": bytes, "sent": sent})
             }
             Event::BackupFailed { error } => json!({"error": error}),
+            Event::CertificateRenewed { name, days } => json!({"name": name, "days": days}),
+            Event::CertificateFailed { name, error } => json!({"name": name, "error": error}),
+            Event::CertificateExpiring { name, days } => json!({"name": name, "days": days}),
         }
     }
 
@@ -321,6 +345,41 @@ impl Event {
             Event::BackupFailed { error } => Message {
                 title: pick("❌ ساخت بکاپ ناموفق بود", "❌ A backup failed"),
                 fields: vec![field("خطا", "Error", error.clone())],
+            },
+            Event::CertificateRenewed { name, days } => Message {
+                title: pick("🔐 گواهی تمدید شد", "🔐 A certificate was renewed"),
+                fields: vec![
+                    field("گواهی", "Certificate", name.clone()),
+                    field(
+                        "اعتبار",
+                        "Valid for",
+                        pick(&format!("{days} روز"), &format!("{days} days")),
+                    ),
+                ],
+            },
+            Event::CertificateFailed { name, error } => Message {
+                title: pick(
+                    "❌ تمدید گواهی ناموفق بود",
+                    "❌ A certificate could not be renewed",
+                ),
+                fields: vec![
+                    field("گواهی", "Certificate", name.clone()),
+                    field("خطا", "Error", error.clone()),
+                ],
+            },
+            Event::CertificateExpiring { name, days } => Message {
+                title: pick(
+                    "⏳ گواهی رو به انقضاست",
+                    "⏳ A certificate is about to expire",
+                ),
+                fields: vec![
+                    field("گواهی", "Certificate", name.clone()),
+                    field(
+                        "مانده",
+                        "Left",
+                        pick(&format!("{days} روز"), &format!("{days} days")),
+                    ),
+                ],
             },
         }
     }
@@ -485,6 +544,18 @@ mod tests {
             },
             Event::BackupFailed {
                 error: "disk full".into(),
+            },
+            Event::CertificateRenewed {
+                name: "panel.example.com".into(),
+                days: 89,
+            },
+            Event::CertificateFailed {
+                name: "panel.example.com".into(),
+                error: "port 80 is closed".into(),
+            },
+            Event::CertificateExpiring {
+                name: "panel.example.com".into(),
+                days: 5,
             },
         ];
         let mut kinds: Vec<&str> = events.iter().map(Event::kind).collect();

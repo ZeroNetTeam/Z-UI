@@ -35,10 +35,18 @@ struct Inner {
     setup_token: Mutex<Option<String>>,
     /// 2FA secrets shown to an admin but not yet confirmed with a code.
     pending_totp: Mutex<HashMap<i64, (String, Instant)>>,
-    /// The panel itself terminates TLS.
-    tls: bool,
+    /// Present when the panel itself terminates TLS: the certificate it
+    /// presents, which can be replaced while it runs ([`crate::tls`]).
+    tls: Option<Arc<crate::tls::Resolver>>,
+    /// Woken to stop serving and start again ([`AppState::restart_soon`]).
+    restart: tokio::sync::Notify,
+    /// The id of the stored certificate the panel serves HTTPS with.
+    panel_certificate: Mutex<Option<i64>>,
     /// Held while the core's configuration changes, one change at a time.
     core_lock: tokio::sync::Mutex<()>,
+    /// Held while a certificate is got or renewed: one at a time, so two do
+    /// not fight over the challenge port or the authority's limits.
+    cert_lock: tokio::sync::Mutex<()>,
     /// Users' addresses against their IP limits ([`crate::jobs`]).
     address_book: Mutex<crate::jobs::AddressBook>,
     /// The subscription options, read on every fetch ([`crate::subscription`]).
@@ -59,7 +67,7 @@ impl AppState {
         db: z_db::Database,
         node: Arc<dyn Node>,
         session_keys: SessionKeys,
-        tls: bool,
+        tls: Option<Arc<crate::tls::Resolver>>,
         monitor: Arc<crate::monitor::Monitor>,
     ) -> Self {
         Self {
@@ -73,7 +81,10 @@ impl AppState {
                 setup_token: Mutex::new(None),
                 pending_totp: Mutex::new(HashMap::new()),
                 tls,
+                restart: tokio::sync::Notify::new(),
+                panel_certificate: Mutex::new(None),
                 core_lock: tokio::sync::Mutex::new(()),
+                cert_lock: tokio::sync::Mutex::new(()),
                 address_book: Mutex::new(Default::default()),
                 subscription: std::sync::RwLock::new(Default::default()),
                 monitor,
@@ -109,11 +120,52 @@ impl AppState {
     }
 
     pub fn tls(&self) -> bool {
-        self.inner.tls
+        self.inner.tls.is_some()
+    }
+
+    /// What the panel's certificate is read from, when it serves HTTPS.
+    pub fn tls_resolver(&self) -> Option<&Arc<crate::tls::Resolver>> {
+        self.inner.tls.as_ref()
+    }
+
+    pub fn panel_certificate(&self) -> Option<i64> {
+        *self
+            .inner
+            .panel_certificate
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn set_panel_certificate(&self, id: Option<i64>) {
+        *self
+            .inner
+            .panel_certificate
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = id;
+    }
+
+    /// Stop serving and start again in `delay`: long enough for the answer
+    /// that asked for it to reach whoever asked.
+    pub fn restart_soon(&self, delay: std::time::Duration) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            // `notify_one` keeps the wake-up if nothing waits yet.
+            state.inner.restart.notify_one();
+        });
+    }
+
+    /// Resolves once a restart was asked for.
+    pub async fn restart_requested(&self) {
+        self.inner.restart.notified().await;
     }
 
     pub fn core_lock(&self) -> &tokio::sync::Mutex<()> {
         &self.inner.core_lock
+    }
+
+    pub fn cert_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.inner.cert_lock
     }
 
     pub fn address_book(&self) -> std::sync::MutexGuard<'_, crate::jobs::AddressBook> {
@@ -243,7 +295,6 @@ pub mod testing {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
-    use clap::Parser;
     use http_body_util::BodyExt;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -358,28 +409,33 @@ pub mod testing {
     }
 
     pub async fn panel(base: &str) -> Panel {
+        // The default path is not given as a flag: a flag would fix it.
+        if base == "/" {
+            panel_with(&[], None).await
+        } else {
+            panel_with(&["--base-path", base], None).await
+        }
+    }
+
+    /// A panel started with these flags, serving HTTPS when it has a
+    /// certificate resolver.
+    pub async fn panel_with(args: &[&str], tls: Option<Arc<crate::tls::Resolver>>) -> Panel {
         use std::hash::{BuildHasher, Hasher};
         let unique = std::collections::hash_map::RandomState::new()
             .build_hasher()
             .finish();
         let dir = std::env::temp_dir().join(format!("z-panel-test-{unique:x}"));
         std::fs::create_dir_all(&dir).unwrap();
-        let config = PanelConfig::parse_from([
-            "z-ui",
-            "--base-path",
-            base,
-            "--data-dir",
-            dir.to_str().unwrap(),
-        ])
-        .resolved()
-        .unwrap();
+        let mut argv = vec!["z-ui", "--data-dir", dir.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        let config = PanelConfig::from_args_iter(argv).resolved().unwrap();
         let db = z_db::Database::open(&config.database_url()).await.unwrap();
         let state = AppState::new(
             config,
             db,
             Arc::new(z_node::LocalNode::new()),
             SessionKeys::new(b"test-session-key-test-session-key"),
-            false,
+            tls,
             crate::monitor::Monitor::new(Default::default(), dir.clone()),
         );
         *state.setup_token() = Some("setup-token".into());

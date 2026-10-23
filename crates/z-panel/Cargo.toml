@@ -56,7 +56,15 @@ rustls-pki-types = { workspace = true }
 tokio-rustls = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+# The ACME client (certificates), with its own HTTP over the panel's proxy-aware layer.
+instant-acme = { version = "0.8", default-features = false, features = ["ring", "rcgen"] }
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+time = "0.3"
 
 [dev-dependencies]
-http-body-util = "0.1"
 sqlx = { workspace = true }
+# The test authority reads certificate requests.
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring", "x509-parser"] }

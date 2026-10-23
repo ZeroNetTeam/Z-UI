@@ -357,6 +357,7 @@ mod tests {
             not_before: 0,
             not_after: 0,
             created_at: 0,
+            ..Default::default()
         };
         let certificates = HashMap::from([(7, certificate)]);
         let reality = inbound(

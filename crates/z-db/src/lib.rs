@@ -20,7 +20,7 @@ pub use admins::{plan_peak, Admin, AdminFields, Holdings};
 pub use api_keys::ApiKey;
 pub use audit::{AuditEntry, AuditQuery, NewAudit};
 pub use backup::{ExportReport, ImportReport, BACKUP_FORMAT};
-pub use certificates::Certificate;
+pub use certificates::{Certificate, NewCertificate};
 pub use inbounds::{Host, HostFields, Inbound, InboundFields};
 pub use notify::TelegramLink;
 pub use roles::{Role, DEFAULT_ROLES};

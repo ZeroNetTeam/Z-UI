@@ -472,6 +472,7 @@ mod tests {
                 not_before: 0,
                 not_after: 0,
                 created_at: 0,
+                ..Default::default()
             },
         );
         let ws = inbound(

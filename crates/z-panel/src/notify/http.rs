@@ -212,7 +212,7 @@ async fn through(
 }
 
 /// Ask an HTTP proxy for a tunnel to `host:port`.
-async fn connect_http(
+pub(crate) async fn connect_http(
     stream: &mut TcpStream,
     host: &str,
     port: u16,
@@ -255,7 +255,7 @@ async fn connect_http(
 }
 
 /// Ask a SOCKS5 proxy for a connection to `host:port`, naming the host.
-async fn connect_socks5(
+pub(crate) async fn connect_socks5(
     stream: &mut TcpStream,
     host: &str,
     port: u16,

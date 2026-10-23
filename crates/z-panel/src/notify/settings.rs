@@ -82,6 +82,8 @@ pub struct Events {
     /// An admin signing in from an address not seen before.
     pub login_new: bool,
     pub backup: bool,
+    /// A certificate renewed, one that could not be, one about to expire.
+    pub certificate: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -139,6 +141,7 @@ impl Default for Events {
             login_failed: true,
             login_new: true,
             backup: true,
+            certificate: true,
         }
     }
 }

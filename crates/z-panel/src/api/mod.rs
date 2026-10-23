@@ -16,6 +16,7 @@ mod inbounds;
 mod keys;
 mod monitor;
 mod notify;
+mod panel;
 #[cfg(test)]
 mod phase9_tests;
 mod roles;
@@ -180,7 +181,11 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         .routes(routes!(hosts::update, hosts::delete));
     let certificates = router()
         .routes(routes!(certificates::list, certificates::create))
-        .routes(routes!(certificates::delete));
+        .routes(routes!(certificates::update, certificates::delete))
+        .routes(routes!(certificates::issue))
+        .routes(routes!(certificates::self_signed))
+        .routes(routes!(certificates::renew))
+        .routes(routes!(certificates::acme_get, certificates::acme_save));
     let core = router()
         .routes(routes!(core::get, core::save))
         .routes(routes!(core::create_warp))
@@ -212,7 +217,9 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         .routes(routes!(notify::test))
         .routes(routes!(backups::list, backups::make))
         .routes(routes!(backups::settings))
-        .routes(routes!(backups::download, backups::delete));
+        .routes(routes!(backups::download, backups::delete))
+        .routes(routes!(panel::get, panel::save))
+        .routes(routes!(panel::restart));
     // A backup is a file: the upload may be large, which the other routes may not.
     let restore = router()
         .routes(routes!(backups::restore))

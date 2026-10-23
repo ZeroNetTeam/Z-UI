@@ -238,9 +238,13 @@ fn colour(event: &Event) -> u32 {
     match event {
         Event::CoreDown
         | Event::BackupFailed { .. }
+        | Event::CertificateFailed { .. }
         | Event::UserLimited { .. }
         | Event::LoginLocked { .. } => 0xd9_4f_4f,
-        Event::CoreUp | Event::BackupDone { .. } | Event::Test => 0x4f_a8_6b,
+        Event::CoreUp
+        | Event::BackupDone { .. }
+        | Event::CertificateRenewed { .. }
+        | Event::Test => 0x4f_a8_6b,
         _ => 0xd8_a8_1f,
     }
 }
