@@ -36,8 +36,9 @@ const NEVER: [&str; 2] = ["audit_log", "notify_sent"];
 /// Tables a restore leaves alone when the backup lacks them.
 const KEEP_TABLES: [&str; 2] = NEVER;
 /// Settings a restore leaves as they are: the key sessions are signed with,
-/// so signing in carries on working.
-const KEEP_SETTINGS: [&str; 1] = ["auth.session_secret"];
+/// so signing in carries on working, and when this machine last made a
+/// backup, so an old file does not make the schedule fire at once.
+const KEEP_SETTINGS: [&str; 2] = ["auth.session_secret", LAST_AT];
 
 /// What a backup came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,18 +194,21 @@ fn file_name(encrypted: bool, suffix: &str) -> String {
 }
 
 /// Make a backup, keep it, and send it: to `to_chat` alone when given, else
-/// to Telegram as the settings say. The result is told to the admins.
+/// to Telegram as the settings say. The result is told to the admins, except
+/// when a chat asked: that chat is answered with the file or the error.
 pub async fn run(state: &AppState, to_chat: Option<i64>) -> Result<Done, String> {
     let result = run_now(state, to_chat).await;
-    match &result {
-        Ok(done) => state.notify(Event::BackupDone {
-            file: done.file.clone(),
-            bytes: done.bytes,
-            sent: done.sent,
-        }),
-        Err(error) => state.notify(Event::BackupFailed {
-            error: error.clone(),
-        }),
+    if to_chat.is_none() {
+        match &result {
+            Ok(done) => state.notify(Event::BackupDone {
+                file: done.file.clone(),
+                bytes: done.bytes,
+                sent: done.sent,
+            }),
+            Err(error) => state.notify(Event::BackupFailed {
+                error: error.clone(),
+            }),
+        }
     }
     result
 }
@@ -608,8 +612,8 @@ mod tests {
             .map(|r| r.json()["text"].as_str().unwrap_or("").to_string())
             .collect();
         assert!(
-            told.is_empty() || told.iter().all(|t| t.contains("backup")),
-            "{told:?}"
+            told.is_empty(),
+            "the chat that asked is answered, not broadcast to: {told:?}"
         );
     }
 
@@ -635,6 +639,12 @@ mod tests {
             .state
             .db()
             .set_setting("auth.session_secret", "LIVE-SECRET")
+            .await
+            .unwrap();
+        target
+            .state
+            .db()
+            .set_setting(LAST_AT, "1234567890")
             .await
             .unwrap();
         target
@@ -683,6 +693,11 @@ mod tests {
                 .as_deref(),
             Some("LIVE-SECRET"),
             "sessions keep their key"
+        );
+        assert_eq!(
+            last_at(&target.state).await,
+            Some(1_234_567_890),
+            "an old file does not rewind the schedule"
         );
         assert_eq!(
             target

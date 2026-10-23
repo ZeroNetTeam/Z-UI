@@ -314,8 +314,15 @@ impl Database {
 
     /// End every session of every admin: after the admins were replaced
     /// wholesale (a restore), no old session may mean whoever now has its id.
+    /// The versions jump by the time in milliseconds, so a second restore,
+    /// even of the same file, cannot land on a version a session was issued
+    /// under in between.
     pub async fn end_all_admin_sessions(&self) -> Result<(), DbError> {
-        sqlx::query("UPDATE admins SET token_version = token_version + 1000000")
+        let jump = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(1_000_000, |d| d.as_millis() as i64);
+        sqlx::query("UPDATE admins SET token_version = token_version + $1")
+            .bind(jump)
             .execute(self.pool())
             .await?;
         Ok(())
@@ -420,6 +427,36 @@ mod tests {
         assert!(again.last_login_at.is_some());
         assert_eq!(db.admin_by_id(admin.id).await.unwrap(), Some(again));
         assert_eq!(db.admin_by_username("nobody").await.unwrap(), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn restoring_twice_never_lands_on_a_version_a_session_was_issued_under() {
+        let (db, dir) = fresh().await;
+        let admin = db.create_admin("owner", "h", true).await.unwrap();
+        db.end_all_admin_sessions().await.unwrap();
+        let first = db
+            .admin_by_id(admin.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .token_version;
+        assert!(first > admin.token_version + 1_000_000);
+        // The same backup comes back: the admins row has its old version again.
+        sqlx::query("UPDATE admins SET token_version = $1")
+            .bind(admin.token_version)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        db.end_all_admin_sessions().await.unwrap();
+        let second = db
+            .admin_by_id(admin.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .token_version;
+        assert_ne!(first, second, "a session from between the two would live");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

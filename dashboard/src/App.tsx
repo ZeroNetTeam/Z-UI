@@ -13,6 +13,7 @@ import { setUnauthorizedHandler } from "@/lib/api";
 import { authKey } from "@/lib/auth";
 import { AdminsPage } from "@/pages/admins";
 import { AuditPage } from "@/pages/audit";
+import { BackupPage } from "@/pages/backup";
 import { CertificatesPage } from "@/pages/certificates";
 import { CorePage } from "@/pages/core";
 import { DashboardPage } from "@/pages/dashboard";
@@ -22,6 +23,7 @@ import { HostsPage } from "@/pages/hosts";
 import { InboundsPage } from "@/pages/inbounds";
 import { LoginPage } from "@/pages/login";
 import { LogsPage } from "@/pages/logs";
+import { NotificationsPage } from "@/pages/notifications";
 import { SettingsPage } from "@/pages/settings";
 import { SetupPage } from "@/pages/setup";
 import { TemplatesPage } from "@/pages/templates";
@@ -49,6 +51,8 @@ const screens: Record<string, ReactNode> = {
   "/core": <CorePage />,
   "/admins": <AdminsPage />,
   "/audit": <AuditPage />,
+  "/notifications": <NotificationsPage />,
+  "/backup": <BackupPage />,
   "/developer": <DeveloperPage />,
 };
 

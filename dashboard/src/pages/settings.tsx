@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { FormError } from "@/components/form-error";
 import { PageHeader } from "@/components/layout/layout";
 import { SubscriptionSettingsCard } from "@/components/subscription-settings";
+import { TelegramLinkCard } from "@/components/telegram-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -235,6 +236,7 @@ export function SettingsPage() {
         )}
         <PasswordCard />
         {admin && <TotpCard admin={admin} />}
+        <TelegramLinkCard />
       </div>
     </>
   );

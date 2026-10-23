@@ -507,3 +507,142 @@ export interface AuditPage {
   entries: AuditEntry[];
   next: number | null;
 }
+
+export type NotifyChannel = "telegram" | "discord" | "webhook";
+
+export interface NotifyEvents {
+  data_low: boolean;
+  data_low_percent: number;
+  expiring: boolean;
+  expiring_days: number;
+  limited: boolean;
+  expired: boolean;
+  core: boolean;
+  login_failed: boolean;
+  login_new: boolean;
+  backup: boolean;
+}
+
+export interface BackupSettingsView {
+  enabled: boolean;
+  interval_hours: number;
+  keep: number;
+  send_telegram: boolean;
+  include_usage: boolean;
+  passphrase_set: boolean;
+}
+
+/** The notification settings as the dashboard is told them: no secret, only whether each is set. */
+export interface NotifySettingsView {
+  language: "fa" | "en";
+  proxy: string;
+  telegram: {
+    enabled: boolean;
+    token_set: boolean;
+    api_base: string;
+    chat_ids: number[];
+    user_bot: boolean;
+    notify_users: boolean;
+  };
+  discord: { enabled: boolean; url_set: boolean };
+  webhook: { enabled: boolean; url: string; secret_set: boolean };
+  events: NotifyEvents;
+  backup: BackupSettingsView;
+}
+
+export interface ChannelStatus {
+  ok_at: number | null;
+  failed_at: number | null;
+  error: string | null;
+}
+
+export interface NotifyView {
+  settings: NotifySettingsView;
+  status: Record<NotifyChannel, ChannelStatus>;
+  bot: { username: string | null; running: boolean; error: string | null };
+}
+
+/** What is sent to change them; an empty secret keeps the one there is. */
+export interface NotifyPayload {
+  language: "fa" | "en";
+  proxy: string;
+  telegram: {
+    enabled: boolean;
+    token: string;
+    api_base: string;
+    chat_ids: number[];
+    user_bot: boolean;
+    notify_users: boolean;
+  };
+  discord: { enabled: boolean; url: string };
+  webhook: { enabled: boolean; url: string; secret: string };
+  events: NotifyEvents;
+  backup: Omit<BackupSettingsView, "passphrase_set"> & { passphrase: string };
+}
+
+export interface TelegramChat {
+  chat_id: number;
+  name: string;
+  created_at: number;
+}
+
+export interface TelegramInfo {
+  enabled: boolean;
+  bot: string | null;
+  chats: TelegramChat[];
+}
+
+export interface LinkCode {
+  code: string;
+  link: string | null;
+  expires_in: number;
+}
+
+export interface BackupFile {
+  name: string;
+  bytes: number;
+  at: number;
+  encrypted: boolean;
+  before_restore: boolean;
+}
+
+export interface BackupsView {
+  files: BackupFile[];
+  settings: BackupSettingsView;
+  last_at: number | null;
+}
+
+export interface BackupMade {
+  file: string;
+  bytes: number;
+  sent: number;
+  encrypted: boolean;
+}
+
+export interface BackupSettingsPayload {
+  enabled: boolean;
+  interval_hours: number;
+  keep: number;
+  send_telegram: boolean;
+  include_usage: boolean;
+  passphrase: string;
+  clear_passphrase: boolean;
+}
+
+export interface Restored {
+  tables: { name: string; rows: number }[];
+  schema: number;
+  panel_version: string;
+  created_at: number;
+  safety: string;
+  warning: string | null;
+}
+
+/** Send a file (a backup) as the body of a request. */
+export function upload<T>(path: string, body: Blob, headers: Record<string, string> = {}): Promise<T> {
+  return api<T>(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream", ...headers },
+    body,
+  });
+}

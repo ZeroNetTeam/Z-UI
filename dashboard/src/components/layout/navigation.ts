@@ -1,4 +1,6 @@
 import {
+  ArchiveIcon,
+  BellRingIcon,
   BoxesIcon,
   BracesIcon,
   CpuIcon,
@@ -58,6 +60,8 @@ export const navigation: NavGroup[] = [
       { to: "/core", label: "core", icon: CpuIcon, needs: "core.read" },
       { to: "/logs", label: "logs", icon: ScrollTextIcon, needs: "logs.read" },
       { to: "/audit", label: "audit", icon: HistoryIcon, needs: "audit.read" },
+      { to: "/notifications", label: "notifications", icon: BellRingIcon, sudo: true },
+      { to: "/backup", label: "backup", icon: ArchiveIcon, sudo: true },
       // Not `/api`: that is where the panel's own API lives.
       { to: "/developer", label: "api", icon: BracesIcon },
       { to: "/settings", label: "settings", icon: SettingsIcon },
