@@ -14,6 +14,7 @@ import { authKey } from "@/lib/auth";
 import { AdminsPage } from "@/pages/admins";
 import { AuditPage } from "@/pages/audit";
 import { BackupPage } from "@/pages/backup";
+import { MigratePage } from "@/pages/migrate";
 import { CertificatesPage } from "@/pages/certificates";
 import { CorePage } from "@/pages/core";
 import { DashboardPage } from "@/pages/dashboard";
@@ -53,6 +54,7 @@ const screens: Record<string, ReactNode> = {
   "/audit": <AuditPage />,
   "/notifications": <NotificationsPage />,
   "/backup": <BackupPage />,
+  "/migrate": <MigratePage />,
   "/developer": <DeveloperPage />,
 };
 

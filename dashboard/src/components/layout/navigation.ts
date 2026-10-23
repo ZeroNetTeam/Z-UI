@@ -1,5 +1,6 @@
 import {
   ArchiveIcon,
+  ArrowRightLeftIcon,
   BellRingIcon,
   BoxesIcon,
   BracesIcon,
@@ -62,6 +63,7 @@ export const navigation: NavGroup[] = [
       { to: "/audit", label: "audit", icon: HistoryIcon, needs: "audit.read" },
       { to: "/notifications", label: "notifications", icon: BellRingIcon, sudo: true },
       { to: "/backup", label: "backup", icon: ArchiveIcon, sudo: true },
+      { to: "/migrate", label: "migrate", icon: ArrowRightLeftIcon, sudo: true },
       // Not `/api`: that is where the panel's own API lives.
       { to: "/developer", label: "api", icon: BracesIcon },
       { to: "/settings", label: "settings", icon: SettingsIcon },

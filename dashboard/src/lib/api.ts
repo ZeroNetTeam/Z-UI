@@ -362,6 +362,9 @@ export interface SubscriptionSettings {
   remark_template: string;
   hwid_required: boolean;
   template: string;
+  /** 3X-UI's own paths for its JSON and Clash subscriptions; empty for none. */
+  legacy_json_path: string;
+  legacy_clash_path: string;
 }
 
 export interface UserSubscription {
@@ -671,6 +674,7 @@ export interface BackupFile {
   at: number;
   encrypted: boolean;
   before_restore: boolean;
+  before_import: boolean;
 }
 
 export interface BackupsView {
@@ -706,9 +710,9 @@ export interface Restored {
 }
 
 /** Send a file (a backup) as the body of a request. */
-export function upload<T>(path: string, body: Blob, headers: Record<string, string> = {}): Promise<T> {
+export function upload<T>(path: string, body: Blob, headers: Record<string, string> = {}, method = "POST"): Promise<T> {
   return api<T>(path, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/octet-stream", ...headers },
     body,
   });
@@ -734,4 +738,68 @@ export interface UpdateView {
   container: boolean;
   check: boolean;
   proxy: string;
+}
+
+export type MigrateKind = "3x-ui" | "pasarguard" | "marzban";
+
+export interface MigrateWarning {
+  /** `inbound`, `user`, `host`, `group`, `template`, `settings` or `source`. */
+  scope: string;
+  name: string;
+  /** A stable word for what is the matter, which the dashboard words. */
+  code: string;
+  /** The same in English, with the details. */
+  detail: string;
+}
+
+export interface MigrateSummary {
+  inbounds: number;
+  users: number;
+  groups: number;
+  templates: number;
+  hosts: number;
+  usage_hours: number;
+  /** `tokens`: users keep their token; `signed`: links signed with the old key work. */
+  links: "tokens" | "signed";
+  inbound_names: string[];
+  user_names: string[];
+}
+
+export interface MigrateAnalysis {
+  id: string;
+  kind: MigrateKind;
+  summary: MigrateSummary;
+  warnings: MigrateWarning[];
+  warnings_total: number;
+  needs_xray_config: boolean;
+  bytes: number;
+}
+
+export interface MigrateOptions {
+  inbounds: boolean;
+  users: boolean;
+  hosts: boolean;
+  templates: boolean;
+  usage: boolean;
+  settings: boolean;
+  enable_inbounds: boolean;
+  on_conflict: "skip" | "rename";
+}
+
+export interface MigrateReport {
+  imported: {
+    inbounds: number;
+    users: number;
+    groups: number;
+    templates: number;
+    hosts: number;
+    certificates: number;
+    usage_hours: number;
+  };
+  warnings: MigrateWarning[];
+  warnings_total: number;
+  backup: string;
+  links: "tokens" | "signed";
+  core_applied: boolean;
+  core_error: string | null;
 }

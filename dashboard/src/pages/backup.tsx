@@ -103,6 +103,7 @@ function Files({ view }: { view: BackupsView }) {
                         </Badge>
                       )}
                       {file.before_restore && <Badge variant="outline">{t("backup.beforeRestore")}</Badge>}
+                      {file.before_import && <Badge variant="outline">{t("backup.beforeImport")}</Badge>}
                     </div>
                   </TableCell>
                   <TableCell className="tabular hidden sm:table-cell">{formatBytes(file.bytes, i18n.language)}</TableCell>

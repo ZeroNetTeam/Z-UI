@@ -22,7 +22,8 @@
     "api": "API",
     "audit": "Activity log",
     "notifications": "Notifications & bot",
-    "backup": "Backup"
+    "backup": "Backup",
+    "migrate": "Migration"
   },
   "header": {
     "menu": "Menu",
@@ -115,7 +116,7 @@
     "invalid_name": "A name of 1 to 64 characters is needed.",
     "too_many": "That's more than allowed at once.",
     "not_found": "Not found; it may have been deleted.",
-    "invalid_subscription": "The subscription settings are not valid: {{message}}",
+    "invalid_subscription": null,
     "invalid_text": "That text is not valid.",
     "invalid_core": "The core does not accept these settings: {{message}}",
     "invalid_preset": "The preset could not be made: {{message}}",
@@ -167,7 +168,14 @@
     "path_conflict": "{{message}}",
     "update_failed": "The update did not work: {{message}}",
     "up_to_date": "This is the newest version.",
-    "container": "This panel runs in a container; it is updated by pulling a new image."
+    "container": "This panel runs in a container; it is updated by pulling a new image.",
+    "not_a_database": "This file is not a database that can be read: {{message}}",
+    "unknown_panel": "This does not look like the database of 3X-UI, PasarGuard or Marzban.",
+    "unreadable_source": "The database opened but could not be read through: {{message}}",
+    "empty_upload": "The file is empty.",
+    "invalid_config": "{{message}}",
+    "import_running": "Another import is still running.",
+    "too_big": "That file is bigger than a configuration file is."
   },
   "settings": {
     "title": "Settings",
@@ -535,7 +543,10 @@
     "hwidRequired": "Only apps that send a device id",
     "hwidRequiredHint": "For a user with a device limit, an app that sends no x-hwid is refused.",
     "template": "Custom subscription page",
-    "templateHint": "Your own HTML for browsers; {{data}} becomes the subscription as JSON. Blank for the built-in page."
+    "templateHint": "Your own HTML for browsers; {{data}} becomes the subscription as JSON. Blank for the built-in page.",
+    "legacyJsonPath": "3X-UI JSON path",
+    "legacyClashPath": "3X-UI Clash path",
+    "legacyPathHint": "Where 3X-UI gave out this format (/json, /clash): the links users already have keep working. Empty for none."
   },
   "devices": {
     "title": "Devices",
@@ -1000,7 +1011,8 @@
       "backup": "Backup",
       "notifications": "Notifications",
       "panel": "Panel",
-      "update": "Updates"
+      "update": "Updates",
+      "migrate": "Migration"
     },
     "action": {
       "auth": {
@@ -1102,6 +1114,12 @@
         "check": "Looked for a new version",
         "apply": "Updated the panel",
         "settings": "Changed the update settings"
+      },
+      "migrate": {
+        "upload": "Uploaded another panel's database",
+        "config": "Gave Marzban's inbound file",
+        "apply": "Imported from another panel",
+        "discard": "Threw an uploaded database away"
       }
     }
   },
@@ -1302,7 +1320,8 @@
     "restoredTitle": "Restored",
     "restoredBody": "The panel is now as it was on {{when}}. Sign in again.",
     "safety": "Safety copy",
-    "signInAgain": "Sign in again"
+    "signInAgain": "Sign in again",
+    "beforeImport": "Before an import"
   },
   "acme": {
     "title": "Issuing settings",
@@ -1378,5 +1397,121 @@
     "checkHint": "Looks every few hours and says in Notifications when there is something new.",
     "proxy": "Proxy for the release server",
     "proxyHint": "If GitHub is closed from your server: http://… or socks5://…; empty is direct."
+  },
+  "migrate": {
+    "title": "Migration",
+    "subtitle": "Bring the users, inbounds and quota of 3X-UI, PasarGuard or Marzban over; the subscription links already handed out keep working.",
+    "uploadTitle": "The other panel's database",
+    "uploadBody": "Upload the database file of the panel you are leaving. It is read and shown to you first; nothing changes until you confirm.",
+    "where": {
+      "3x-ui": "x-ui.db · /etc/x-ui/",
+      "pasarguard": "db.sqlite3 · /var/lib/pasarguard/",
+      "marzban": "db.sqlite3 + xray_config.json · /var/lib/marzban/"
+    },
+    "kind": {
+      "3x-ui": "3X-UI",
+      "pasarguard": "PasarGuard",
+      "marzban": "Marzban"
+    },
+    "pick": "Choose the database file",
+    "notADatabase": "This does not look like a database file.",
+    "kindLabel": "Which panel",
+    "kindHint": "Found out from the file; say it only if it guessed wrong.",
+    "kindAuto": "Find out",
+    "read": "Read it",
+    "reading": "Reading…",
+    "previewTitle": "What it holds",
+    "previewBody": "A {{size}} file. Nothing has been written here yet.",
+    "discard": "Throw it away",
+    "needsConfig": "Marzban keeps its inbounds in a file beside the database, not in it. Give xray_config.json too, or the users come without inbounds.",
+    "pickConfig": "Choose xray_config.json",
+    "counts": {
+      "inbounds": "Inbounds",
+      "users": "Users",
+      "groups": "Access groups",
+      "templates": "Templates",
+      "hosts": "Hosts",
+      "usage": "Hours of usage",
+      "certificates": "Certificates"
+    },
+    "links": {
+      "tokens": "Every user keeps its subscription token, so the links already handed out keep working at the same address: set the same subscription path (and domain) under Settings.",
+      "signed": "The links the old panel signed keep working: they are checked with its key, which is kept here. A user whose credentials are revoked here loses its old link as well."
+    },
+    "warnings_one": "One thing to know",
+    "warnings_other": "{{formatted}} things to know",
+    "warningsCapped": "Showing {{shown}} of {{total}}.",
+    "scope": {
+      "inbound": "Inbound",
+      "user": "User",
+      "host": "Host",
+      "group": "Group",
+      "template": "Template",
+      "settings": "Settings",
+      "source": "The database"
+    },
+    "warning": {
+      "renamed": "{{name}} is renamed to be a valid name or tag here.",
+      "unsupported_protocol": "{{name}} is of a kind this panel does not build, so it is not imported (VLESS, VMess, Trojan and Shadowsocks are).",
+      "remote_inbound": "{{name}} runs on another node of the old panel, not on this server, so it is not imported.",
+      "inbound_limit_ignored": "{{name}} had a limit on the whole inbound; that is not imported, users have their own.",
+      "client_without_email": "An account on {{name}} has no email, which is its name here, so it is left out.",
+      "flow_for_all": "VLESS flow is the inbound's here, not each user's: the commonest one is set for everyone on the inbound.",
+      "method_set": "{{name}}: its users each had a Shadowsocks method; the inbound uses the commonest for all.",
+      "credentials_changed": "Some users had one id (or password) for one protocol and another for another. Here a user has one of each kind; the saved configs of the other protocol stop working until they fetch the subscription again.",
+      "different_ids": "{{name}} had a different id on different inbounds; one is kept, and its subscription gives the rest.",
+      "shared_sub_id": "{{name}} shared its subscription link with another user; the first keeps it and this one gets a new one.",
+      "no_inbound": "{{name}} was only on inbounds that are not imported, so it has no access yet.",
+      "id_not_uuid": "{{name}} had an id that is not a UUID, so a new one is made.",
+      "reset_approximated": "{{name}} reset every few days; here the nearest period is used (day, week, month or year).",
+      "core_not_imported": "{{name}} is a core other than Xray; it is not imported.",
+      "core_unreadable": "{{name}} has a configuration that cannot be read as JSON.",
+      "host_without_inbound": "{{name}} is a host of no inbound.",
+      "host_first_only": "{{name}} listed several SNI or Host names; the first is kept.",
+      "host_security_ignored": "{{name}} overrides the inbound's security (TLS); that is not imported, the inbound's own applies.",
+      "host_features_ignored": "{{name}} uses features hosts do not have here (fragment, noise, mux, extra headers); they are not imported.",
+      "no_xray_config": "Marzban's inbounds are in xray_config.json, which was not given: users, hosts and templates come, but no inbounds and no access groups.",
+      "group_disabled": "{{name}} was disabled there, so here it holds no inbounds.",
+      "skipped_exists": "{{name}} is already here, so it is left out.",
+      "skipped_invalid": "{{name}} has a port that is not between 1 and 65535, so it is left out.",
+      "skipped_protocol": "{{name}} is of a kind this panel does not build, so it is left out.",
+      "skipped_core": "{{name}} was refused by the core's own check (see the details), so it is left out.",
+      "skipped_error": "{{name}} could not be added (see the details).",
+      "cert_not_taken": "The certificate of {{name}} could not be brought into the store; it keeps naming its files.",
+      "old_links_not_kept": "The old panel's signed links cannot be kept (see the details).",
+      "subscription_settings_refused": "The old panel's subscription settings were not taken (see the details)."
+    },
+    "optionsTitle": "What to bring",
+    "opt": {
+      "inbounds": "Inbounds and access groups",
+      "users": "Users, with quota, dates and credentials",
+      "hosts": "Hosts",
+      "templates": "Templates",
+      "usage": "Past usage for the charts",
+      "settings": "Subscription settings",
+      "settingsHint": "The old panel's path, title and update interval.",
+      "enable": "Switch the inbounds on",
+      "enableHint": "Off, they come in switched off: the old panel still holds their ports until it is stopped. Switch them on under Inbounds when it has been.",
+      "conflict": "A name that is taken",
+      "conflictHint": "A user or template named like one that is already here.",
+      "skip": "Leave it out",
+      "rename": "Bring it under another name (name-2)"
+    },
+    "import": "Import…",
+    "confirmTitle": "Import into this panel?",
+    "confirm1": "A backup of everything this panel holds is made first; restoring it under Backup undoes the import.",
+    "confirm2": "Users, inbounds and groups are added to what is here; nothing here is deleted or replaced.",
+    "confirm3": "Nothing is changed in the old panel.",
+    "importing": "Importing…",
+    "importNow": "Import now",
+    "doneTitle": "Imported",
+    "doneBody": "This is what came over.",
+    "backupKept": "Backup of before the import",
+    "coreError": "The core did not take the new configuration: {{message}}",
+    "nextTitle": "What to do next",
+    "next1": "Look through the users and the groups they are in.",
+    "next2": "Stop the old panel, then switch the inbounds on under Inbounds.",
+    "next3": "Make the subscription domain and path what users already have, under Settings.",
+    "another": "Import another"
   }
 }

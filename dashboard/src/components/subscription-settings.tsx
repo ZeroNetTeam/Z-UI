@@ -89,6 +89,24 @@ export function SubscriptionSettingsCard() {
                 dir="ltr"
               />
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label={t("subscription.legacyJsonPath")}
+                value={form.legacy_json_path}
+                onChange={(e) => set({ legacy_json_path: e.target.value })}
+                placeholder="/json"
+                dir="ltr"
+                hint={t("subscription.legacyPathHint")}
+              />
+              <Field
+                label={t("subscription.legacyClashPath")}
+                value={form.legacy_clash_path}
+                onChange={(e) => set({ legacy_clash_path: e.target.value })}
+                placeholder="/clash"
+                dir="ltr"
+                hint={t("subscription.legacyPathHint")}
+              />
+            </div>
             <Field
               label={t("subscription.remarkTemplate")}
               value={form.remark_template}
