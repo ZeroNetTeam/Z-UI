@@ -1,0 +1,41 @@
+{
+  "secret": "c2f6a1e49b7d3058e1a4c7f9b2d6803e5a1c4e7f90b3d6a28c5e1f4b7a0d3c69",
+  "tokens": [
+    {
+      "name": "legacy_zed",
+      "token": "emVkLDE3Njk5MDQwMDA1rV_gv997p",
+      "who": "zed",
+      "valid": true
+    },
+    {
+      "name": "jwt_zed",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ6ZWQiLCJhY2Nlc3MiOiJzdWJzY3JpcHRpb24iLCJpYXQiOjE3Njk5MDQwMDB9.Rr_eksdSMwokOomjlaSSP88u_zzbGoXv-EfsA-tl-k4",
+      "who": "zed",
+      "valid": true
+    },
+    {
+      "name": "legacy_wei_before_revoke",
+      "token": "d2VpLDE3ODAyNzIwMDAcsZKDYjtlA",
+      "who": "wei",
+      "valid": false
+    },
+    {
+      "name": "legacy_wei_after_revoke",
+      "token": "d2VpLDE3ODU1NDI0MDA9GKwe_vcqn",
+      "who": "wei",
+      "valid": true
+    },
+    {
+      "name": "legacy_unknown",
+      "token": "bm9ib2R5LDE3Njk5MDQwMDAqWBT0bghh6",
+      "who": null,
+      "valid": false
+    },
+    {
+      "name": "legacy_zed_before_creation",
+      "token": "emVkLDE3NjQ1NDcyMDAGsbcccVVVE",
+      "who": "zed",
+      "valid": false
+    }
+  ]
+}

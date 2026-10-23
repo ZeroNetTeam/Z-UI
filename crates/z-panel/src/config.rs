@@ -84,9 +84,50 @@ pub enum Command {
         #[arg(long, env = "ZUI_BACKUP_PASSPHRASE")]
         passphrase: Option<String>,
     },
+    /// Bring over the users, inbounds, quota and usage of another panel
+    /// (3X-UI, PasarGuard or Marzban) from its database. Shows what would
+    /// come over; `--apply` does it, after a backup of what is here.
+    Migrate(MigrateArgs),
     /// Ask a running panel whether it answers (for a container's health
     /// check): exits 0 if it does.
     Health,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub struct MigrateArgs {
+    /// The other panel's database: a SQLite file (`x-ui.db`, `db.sqlite3`) or
+    /// a `postgres://` address. Opened read-only.
+    pub from: String,
+    /// `3x-ui`, `pasarguard` or `marzban`, when it is not to be found out.
+    #[arg(long)]
+    pub kind: Option<String>,
+    /// Marzban keeps its inbounds in a file: its `xray_config.json`.
+    #[arg(long)]
+    pub xray_config: Option<PathBuf>,
+    /// Do it; without this only what would come over is shown.
+    #[arg(long)]
+    pub apply: bool,
+    #[arg(long)]
+    pub no_inbounds: bool,
+    #[arg(long)]
+    pub no_users: bool,
+    #[arg(long)]
+    pub no_hosts: bool,
+    #[arg(long)]
+    pub no_templates: bool,
+    #[arg(long)]
+    pub no_usage: bool,
+    /// Leave the old panel's subscription path, title and so on alone.
+    #[arg(long)]
+    pub no_settings: bool,
+    /// Switch the inbounds on. They come in off, because the old panel
+    /// still holds their ports until it is stopped.
+    #[arg(long)]
+    pub enable_inbounds: bool,
+    /// Bring a user or template whose name is taken in under another name,
+    /// instead of leaving it out.
+    #[arg(long)]
+    pub rename: bool,
 }
 
 #[derive(Debug, Clone, clap::Subcommand)]

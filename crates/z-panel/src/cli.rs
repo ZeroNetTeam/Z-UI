@@ -11,7 +11,7 @@ use crate::auth;
 use crate::auth::session::SessionKeys;
 use crate::certs::{self, acme};
 use crate::config::{
-    AdminCommand, CertCommand, Command, PanelConfig, SettingCommand, UpdateCommand,
+    AdminCommand, CertCommand, Command, MigrateArgs, PanelConfig, SettingCommand, UpdateCommand,
 };
 use crate::panel_settings::{self, Stored};
 use crate::server::AppState;
@@ -32,6 +32,7 @@ pub async fn run(
         Command::Restore { file, passphrase } => {
             restore(config, db, file, passphrase.as_deref()).await
         }
+        Command::Migrate(args) => migrate(config, db, args).await,
         Command::Health => health(config, stored).await,
     }
 }
@@ -450,6 +451,97 @@ async fn restore(
     Ok(())
 }
 
+/// Show what another panel's database would bring, and bring it with `--apply`.
+async fn migrate(
+    config: &PanelConfig,
+    db: &z_db::Database,
+    args: &MigrateArgs,
+) -> anyhow::Result<()> {
+    use crate::migrate::apply::{Conflict, Options};
+    use crate::migrate::model::{Kind, LinkSupport};
+
+    let kind = match args.kind.as_deref() {
+        Some(text) => Some(Kind::parse(text).context("--kind is 3x-ui, pasarguard or marzban")?),
+        None => None,
+    };
+    let xray_config: Option<serde_json::Value> = match &args.xray_config {
+        Some(path) => {
+            let bytes =
+                std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+            Some(
+                serde_json::from_slice(&bytes)
+                    .with_context(|| format!("{} is not JSON", path.display()))?,
+            )
+        }
+        None => None,
+    };
+    let plan = crate::migrate::read(&args.from, kind, xray_config.as_ref())
+        .await
+        .map_err(|error| match error {
+            crate::migrate::ReadError::Open(e) => anyhow::anyhow!("cannot open {}: {e}", args.from),
+            crate::migrate::ReadError::Unknown => anyhow::anyhow!(
+                "{} does not look like the database of 3X-UI, PasarGuard or Marzban (say which with --kind)",
+                args.from
+            ),
+            crate::migrate::ReadError::Read(e) => anyhow::anyhow!("reading {}: {e}", args.from),
+        })?;
+    let summary = plan.summary();
+    println!("a {} database", plan.kind.label());
+    println!(
+        "{} inbounds, {} users, {} groups, {} templates, {} hosts, {} hours of usage",
+        summary.inbounds,
+        summary.users,
+        summary.groups,
+        summary.templates,
+        summary.hosts,
+        summary.usage_hours
+    );
+    println!(
+        "old subscription links: {}",
+        match summary.links {
+            LinkSupport::Tokens => "each user keeps its token, so the same address works",
+            LinkSupport::Signed => "signed links keep working for the users that come over",
+        }
+    );
+    for warning in &plan.warnings {
+        println!("  [{}] {}: {}", warning.scope, warning.name, warning.detail);
+    }
+    if !args.apply {
+        println!("nothing was changed; run again with --apply to bring it over");
+        return Ok(());
+    }
+    let options = Options {
+        inbounds: !args.no_inbounds,
+        users: !args.no_users,
+        hosts: !args.no_hosts,
+        templates: !args.no_templates,
+        usage: !args.no_usage,
+        settings: !args.no_settings,
+        enable_inbounds: args.enable_inbounds,
+        on_conflict: if args.rename {
+            Conflict::Rename
+        } else {
+            Conflict::Skip
+        },
+        sync_core: false,
+    };
+    let state = offline(config, db).await;
+    let report = crate::migrate::apply::apply(&state, plan, &options)
+        .await
+        .map_err(|e| anyhow::anyhow!(e.message))?;
+    let n = &report.imported;
+    println!(
+        "brought over {} inbounds, {} users, {} groups, {} templates, {} hosts, {} certificates",
+        n.inbounds, n.users, n.groups, n.templates, n.hosts, n.certificates
+    );
+    println!(
+        "what was here before is kept as {} (restoring it undoes this)",
+        report.backup
+    );
+    println!("start (or restart) the panel to use it");
+    Ok(())
+}
+
 /// Ask the panel on this machine whether it answers: connect to where it
 /// listens (over TLS if it serves HTTPS) and read the status of its open
 /// `auth/state`.
@@ -665,6 +757,60 @@ mod tests {
             &config,
             &db,
             &["restore", dir.join("missing.zbk").to_str().unwrap()]
+        )
+        .await
+        .is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn another_panels_database_is_shown_first_and_brought_over_only_when_asked() {
+        use crate::migrate::tests::{TempDb, CLASSIC};
+        let (config, db, dir) = world().await;
+        let source = TempDb::new(CLASSIC).await;
+        run_args(&config, &db, &["migrate", source.path()])
+            .await
+            .unwrap();
+        assert!(
+            db.all_users().await.unwrap().is_empty(),
+            "no --apply, no change"
+        );
+
+        run_args(
+            &config,
+            &db,
+            &["migrate", source.path(), "--apply", "--no-usage"],
+        )
+        .await
+        .unwrap();
+        assert_eq!(db.all_users().await.unwrap().len(), 10);
+        assert_eq!(db.inbounds().await.unwrap().len(), 4);
+        assert!(
+            db.user_by_token("ali0sub1id").await.unwrap().is_some(),
+            "the old link's token is the user's"
+        );
+        assert!(std::fs::read_dir(dir.join("backups"))
+            .unwrap()
+            .flatten()
+            .any(|f| f.file_name().to_string_lossy().contains("-before-import")));
+
+        // A kind that does not exist, a file that is no database, a missing file.
+        assert!(run_args(
+            &config,
+            &db,
+            &["migrate", source.path(), "--kind", "wordpress"]
+        )
+        .await
+        .is_err());
+        let junk = dir.join("junk.db");
+        std::fs::write(&junk, b"not a database at all, only some text").unwrap();
+        assert!(run_args(&config, &db, &["migrate", junk.to_str().unwrap()])
+            .await
+            .is_err());
+        assert!(run_args(
+            &config,
+            &db,
+            &["migrate", dir.join("missing.db").to_str().unwrap()]
         )
         .await
         .is_err());

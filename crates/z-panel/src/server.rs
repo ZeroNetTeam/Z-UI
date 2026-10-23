@@ -61,6 +61,8 @@ struct Inner {
     notifier: Arc<crate::notify::Notifier>,
     /// Codes an admin sends the bot to tie a Telegram chat to themselves.
     link_codes: Mutex<HashMap<String, (i64, Instant)>>,
+    /// Held while another panel's data is imported: one import at a time.
+    import_lock: tokio::sync::Mutex<()>,
 }
 
 impl AppState {
@@ -94,6 +96,7 @@ impl AppState {
                 notify_settings: std::sync::RwLock::new(Default::default()),
                 notifier: crate::notify::Notifier::new(),
                 link_codes: Mutex::new(HashMap::new()),
+                import_lock: tokio::sync::Mutex::new(()),
             }),
         }
     }
@@ -161,6 +164,10 @@ impl AppState {
     /// Resolves once a restart was asked for.
     pub async fn restart_requested(&self) {
         self.inner.restart.notified().await;
+    }
+
+    pub fn import_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.inner.import_lock
     }
 
     pub fn core_lock(&self) -> &tokio::sync::Mutex<()> {
@@ -509,8 +516,18 @@ pub mod testing {
 
         /// A request whose body is these raw bytes (a file upload).
         pub async fn upload(&self, path: &str, headers: &[(&str, &str)], bytes: Vec<u8>) -> Reply {
+            self.upload_as("POST", path, headers, bytes).await
+        }
+
+        pub async fn upload_as(
+            &self,
+            method: &str,
+            path: &str,
+            headers: &[(&str, &str)],
+            bytes: Vec<u8>,
+        ) -> Reply {
             let mut request = Request::builder()
-                .method("POST")
+                .method(method)
                 .uri(path)
                 .header(header::CONTENT_TYPE, "application/octet-stream");
             for (name, value) in headers {

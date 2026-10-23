@@ -68,6 +68,11 @@ pub struct Settings {
     /// The page browsers get, in place of the built-in one: HTML in which
     /// `{{data}}` becomes the subscription as JSON.
     pub template: String,
+    /// Where 3X-UI gave out its JSON and Clash subscriptions (`/json`,
+    /// `/clash`): `{path}/{token}` there is the Xray or the Clash format
+    /// of the same subscription. Empty for none.
+    pub legacy_json_path: String,
+    pub legacy_clash_path: String,
 }
 
 impl Default for Settings {
@@ -82,6 +87,8 @@ impl Default for Settings {
             remark_template: "{remark}".into(),
             hwid_required: false,
             template: String::new(),
+            legacy_json_path: String::new(),
+            legacy_clash_path: String::new(),
         }
     }
 }
@@ -120,8 +127,44 @@ impl Settings {
         if self.remark_template.trim().is_empty() {
             self.remark_template = "{remark}".into();
         }
+        self.legacy_json_path = legacy_path(&self.legacy_json_path)?;
+        self.legacy_clash_path = legacy_path(&self.legacy_clash_path)?;
+        for other in [&self.legacy_json_path, &self.legacy_clash_path] {
+            if other.is_empty() {
+                continue;
+            }
+            if *other == self.path {
+                return Err("the JSON and Clash paths differ from the subscription path");
+            }
+            if base != "/"
+                && (*other == base
+                    || other.starts_with(&format!("{base}/"))
+                    || base.starts_with(&format!("{other}/")))
+            {
+                return Err("the JSON and Clash paths stay out of the panel's path");
+            }
+        }
+        if !self.legacy_json_path.is_empty() && self.legacy_json_path == self.legacy_clash_path {
+            return Err("the JSON and Clash paths differ from each other");
+        }
         Ok(self)
     }
+}
+
+/// An extra subscription path, normalised: `json/` gives `/json`, nothing
+/// gives nothing.
+fn legacy_path(path: &str) -> Result<String, &'static str> {
+    let trimmed = path.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    if !trimmed
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'/'))
+    {
+        return Err("a path is letters, digits, '-', '_', '.' and '/'");
+    }
+    Ok(format!("/{trimmed}"))
 }
 
 /// The stored settings, or the defaults.
@@ -198,15 +241,33 @@ fn subscription_path<'a>(path: &'a str, base: &str) -> Option<(&'a str, Option<&
 /// anything else goes on.
 pub async fn intercept(State(state): State<AppState>, request: Request, next: Next) -> Response {
     if matches!(*request.method(), Method::GET | Method::HEAD) {
-        let base = state.subscription().path;
-        if let Some((token, format)) = subscription_path(request.uri().path(), &base) {
+        let settings = state.subscription();
+        // The subscription path, and 3X-UI's own for its JSON and Clash ones.
+        let places = [
+            (settings.path.as_str(), None),
+            (settings.legacy_json_path.as_str(), Some("xray")),
+            (settings.legacy_clash_path.as_str(), Some("clash")),
+        ];
+        for (base, forced) in places {
+            if base.is_empty() {
+                continue;
+            }
+            let Some((token, format)) = subscription_path(request.uri().path(), base) else {
+                continue;
+            };
+            if forced.is_some() && format.is_some() {
+                continue;
+            }
             let query_format = request.uri().query().and_then(|query| {
                 query
                     .split('&')
                     .find_map(|pair| pair.strip_prefix("format="))
                     .map(str::to_string)
             });
-            let format = format.map(str::to_string).or(query_format);
+            let format = forced
+                .map(str::to_string)
+                .or_else(|| format.map(str::to_string))
+                .or(query_format);
             return serve(&state, token, format.as_deref(), request.headers())
                 .await
                 .unwrap_or_else(|error| {
@@ -373,7 +434,7 @@ pub async fn serve(
     headers: &HeaderMap,
 ) -> Result<Response, z_db::DbError> {
     let db = state.db();
-    let Some(user) = db.user_by_token(token).await? else {
+    let Some(user) = crate::migrate::legacy::find_user(db, token).await? else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
     let settings = state.subscription();
@@ -420,7 +481,7 @@ pub async fn serve(
     let endpoints = user_endpoints(state, &user, &server).await?;
     let scheme = if state.tls() { "https" } else { "http" };
     let origin = format!("{scheme}://{}", header_text(headers, "host"));
-    let sub_url = url(&settings, &origin, token);
+    let sub_url = url(&settings, &origin, &user.sub_token);
 
     let (content_type, body) = match format {
         Format::Base64 => (

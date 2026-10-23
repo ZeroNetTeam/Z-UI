@@ -76,7 +76,10 @@ pub fn valid_name(name: &str) -> bool {
         .strip_suffix(".zbk.enc")
         .or_else(|| rest.strip_suffix(".zbk"));
     let Some(rest) = rest else { return false };
-    let rest = rest.strip_suffix("-before-restore").unwrap_or(rest);
+    let rest = rest
+        .strip_suffix("-before-restore")
+        .or_else(|| rest.strip_suffix("-before-import"))
+        .unwrap_or(rest);
     let mut parts = rest.split('-');
     let (Some(day), Some(time), None) = (parts.next(), parts.next(), parts.next()) else {
         return false;
@@ -97,6 +100,8 @@ pub struct FileInfo {
     pub encrypted: bool,
     /// Made by a restore, of what the panel held before it.
     pub before_restore: bool,
+    /// Made by an import from another panel, of what the panel held before it.
+    pub before_import: bool,
 }
 
 pub fn list(state: &AppState) -> Vec<FileInfo> {
@@ -118,6 +123,7 @@ pub fn list(state: &AppState) -> Vec<FileInfo> {
             Some(FileInfo {
                 encrypted: name.ends_with(".enc"),
                 before_restore: name.contains("-before-restore"),
+                before_import: name.contains("-before-import"),
                 bytes: meta.len(),
                 at,
                 name,
@@ -277,6 +283,16 @@ async fn run_now(state: &AppState, to_chat: Option<i64>) -> Result<Done, String>
     })
 }
 
+/// Save everything the panel holds as a file of its own, the way back from
+/// something that is about to replace or add to it (`suffix` says what).
+pub async fn save_before(state: &AppState, suffix: &str) -> Result<String, String> {
+    let settings = state.notify_settings();
+    let before = make(state, true, &settings.backup.passphrase).await?;
+    let name = file_name(!settings.backup.passphrase.is_empty(), suffix);
+    store(state, &name, &before)?;
+    Ok(name)
+}
+
 /// Why a restore did not happen.
 #[derive(Debug)]
 pub struct Refused {
@@ -338,8 +354,7 @@ pub async fn restore(
 
     let guard = state.core_lock().lock().await;
     // The way back, before anything is replaced; without it nothing is.
-    let settings = state.notify_settings();
-    let before = make(state, true, &settings.backup.passphrase)
+    let safety = save_before(state, "-before-restore")
         .await
         .map_err(|error| {
             refused(
@@ -347,13 +362,6 @@ pub async fn restore(
                 format!("could not save the current state first: {error}"),
             )
         })?;
-    let safety = file_name(!settings.backup.passphrase.is_empty(), "-before-restore");
-    store(state, &safety, &before).map_err(|error| {
-        refused(
-            "backup_failed",
-            format!("could not save the current state first: {error}"),
-        )
-    })?;
 
     let reader: Box<dyn Read + Send + '_> = if gzip {
         Box::new(GzDecoder::new(data).take(INFLATED_LIMIT))

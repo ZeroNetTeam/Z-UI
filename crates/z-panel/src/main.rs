@@ -13,6 +13,7 @@ mod core_config;
 mod core_settings;
 mod error;
 mod jobs;
+mod migrate;
 mod monitor;
 mod notify;
 mod outbound;

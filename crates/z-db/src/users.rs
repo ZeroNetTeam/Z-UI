@@ -461,6 +461,7 @@ impl Database {
             "DELETE FROM user_access_groups WHERE user_id = $1",
             "DELETE FROM user_usage WHERE user_id = $1",
             "DELETE FROM user_devices WHERE user_id = $1",
+            "DELETE FROM legacy_users WHERE user_id = $1",
             "DELETE FROM telegram_links WHERE kind = 'user' AND ref_id = $1",
         ] {
             sqlx::query(table).bind(id).execute(&mut *tx).await?;
@@ -540,14 +541,21 @@ impl Database {
         password: &str,
         sub_token: &str,
     ) -> Result<(), DbError> {
+        let mut tx = self.pool().begin().await?;
         sqlx::query("UPDATE users SET uuid = $1, password = $2, sub_token = $3, updated_at = $4 WHERE id = $5")
             .bind(uuid)
             .bind(password)
             .bind(sub_token)
             .bind(now())
             .bind(id)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await?;
+        // A link from the panel this user came from is a subscription link too.
+        sqlx::query("DELETE FROM legacy_users WHERE user_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
         Ok(())
     }
 

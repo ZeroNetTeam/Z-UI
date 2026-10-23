@@ -14,6 +14,7 @@ mod groups;
 mod hosts;
 mod inbounds;
 mod keys;
+mod migrate;
 mod monitor;
 mod notify;
 mod panel;
@@ -80,6 +81,7 @@ pub const LOG_LEVEL_SETTING: &str = "log.level";
         (name = "notifications", description = "Notifications, the Telegram bot, Discord, webhooks (sudo only)"),
         (name = "panel", description = "The panel itself"),
         (name = "update", description = "Newer versions of the panel (sudo only)"),
+        (name = "migrate", description = "Moving here from 3X-UI, PasarGuard or Marzban (sudo only)"),
     ),
 )]
 struct ApiDoc;
@@ -230,6 +232,14 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         .routes(routes!(backups::restore))
         .layer(axum::extract::DefaultBodyLimit::max(backups::MAX_UPLOAD));
 
+    // Another panel's database is a file too, and as large.
+    let migrate = router()
+        .routes(routes!(migrate::upload))
+        .routes(routes!(migrate::preview, migrate::discard))
+        .routes(routes!(migrate::xray_config))
+        .routes(routes!(migrate::apply))
+        .layer(axum::extract::DefaultBodyLimit::max(migrate::MAX_UPLOAD));
+
     vec![
         (None, open),
         (Some(Need::Signed), signed),
@@ -253,6 +263,7 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         (Some(Need::SessionSection(Section::Api)), api_keys),
         (Some(Need::Sudo), admins),
         (Some(Need::Sudo), restore),
+        (Some(Need::Sudo), migrate),
     ]
 }
 

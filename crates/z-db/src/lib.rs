@@ -12,8 +12,10 @@ mod audit;
 mod backup;
 mod certificates;
 mod inbounds;
+mod migrate;
 mod notify;
 mod roles;
+mod source;
 mod users;
 
 pub use admins::{plan_peak, Admin, AdminFields, Holdings};
@@ -22,8 +24,10 @@ pub use audit::{AuditEntry, AuditQuery, NewAudit};
 pub use backup::{ExportReport, ImportReport, BACKUP_FORMAT};
 pub use certificates::{Certificate, NewCertificate};
 pub use inbounds::{Host, HostFields, Inbound, InboundFields};
+pub use migrate::{ImportedUser, LegacyRef};
 pub use notify::TelegramLink;
 pub use roles::{Role, DEFAULT_ROLES};
+pub use source::{parse_datetime, Record, Source};
 pub use users::{
     AccessGroup, Device, DeviceFields, NextPlan, TrafficDelta, UsagePoint, User, UserFields,
     UserQuery, UserTemplate, UserUsage,

@@ -101,8 +101,10 @@ container with no terminal).
 
 The same program has commands for the server: `z-ui admin create|list|reset-password`,
 `z-ui setting show|set|reset`, `z-ui cert list|issue|renew|self-signed`,
-`z-ui update check|apply|rollback`, `z-ui backup`, `z-ui restore FILE` and
-`z-ui health`.
+`z-ui update check|apply|rollback`, `z-ui backup`, `z-ui restore FILE`,
+`z-ui migrate FROM [--apply]` (bring over the users, inbounds and quota of
+3X-UI, PasarGuard or Marzban from their database; their subscription links keep
+working) and `z-ui health`.
 
 ### First start
 

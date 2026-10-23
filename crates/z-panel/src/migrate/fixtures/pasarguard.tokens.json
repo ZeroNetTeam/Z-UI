@@ -1,0 +1,81 @@
+{
+  "secret": "5f3a9c1e7b2d4f60a8c3e1d9b7f50426c8a1e3d5f7092b4c6e8a0d2f4b6c8e1a",
+  "tokens": [
+    {
+      "name": "v3_alice",
+      "token": "djMsMSwxNzY5OTA0MDAw.T-SnYCKMv-7_FMTWdirOejGQpq6GYm1H3wK_eVpcwu4",
+      "claim": {
+        "created_at": 1769904000,
+        "user_id": 1
+      }
+    },
+    {
+      "name": "v3_bob",
+      "token": "djMsMiwxNzg1NzE1MjAw.Tc1zthngaksVbPv_G2v-zvyzGS0JhqIdd8kKxtO6uTE",
+      "claim": {
+        "created_at": 1785715200,
+        "user_id": 2
+      }
+    },
+    {
+      "name": "v3_dave_before_revoke",
+      "token": "djMsNCwxNzcyMzIzMjAw.Ll0oqgsr46f51i1ClYNMOD2EDQvvNmYDA-_CInH1DnM",
+      "claim": {
+        "created_at": 1772323200,
+        "user_id": 4
+      }
+    },
+    {
+      "name": "v3_dave_after_revoke",
+      "token": "djMsNCwxNzgyODY0MDAw.4KyYzooqzeWFiTdUGhjjPAUtwWM7VQJbjCCcmAXnL8w",
+      "claim": {
+        "created_at": 1782864000,
+        "user_id": 4
+      }
+    },
+    {
+      "name": "v3_wrong_key",
+      "token": "djMsMSwxNzY5OTA0MDAw.xxgHhhqC80vOMCsFDGv_67m_IuDyNQ_qgd7F11JF7zs",
+      "claim": null
+    },
+    {
+      "name": "jwt_alice",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsImFjY2VzcyI6InN1YnNjcmlwdGlvbiIsImlhdCI6MTc2OTkwNDAwMH0.Q2rNP3tzU1JHxnZdalSfKBBxc_W7UIXmHx9NpXYZV2g",
+      "claim": {
+        "created_at": 1769904000,
+        "username": "alice"
+      }
+    },
+    {
+      "name": "jwt_expired",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsImFjY2VzcyI6InN1YnNjcmlwdGlvbiIsImlhdCI6MTc2OTkwNDAwMCwiZXhwIjoxNzcyMzIzMjAwfQ.d70DZiJBi4LTZP9j2qkk80rTqCC7l27Ugy8KeQw5908",
+      "claim": null
+    },
+    {
+      "name": "jwt_not_a_subscription",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsImFjY2VzcyI6ImFkbWluIiwiaWF0IjoxNzY5OTA0MDAwfQ.M5XQoHRwbd-rNDwXbXO7rNzNkBBs6RjydQFI1vU8o5U",
+      "claim": null
+    },
+    {
+      "name": "legacy_carol",
+      "token": "Y2Fyb2wsMTc3NTAwMTYwMAFrq9U7irFU",
+      "claim": {
+        "created_at": 1775001600,
+        "username": "carol"
+      }
+    },
+    {
+      "name": "legacy_carol_hex",
+      "token": "Y2Fyb2wsMTc3NTAwMTYwMA16babd53b8",
+      "claim": {
+        "created_at": 1775001600,
+        "username": "carol"
+      }
+    },
+    {
+      "name": "legacy_carol_tampered",
+      "token": "Y2Fyb2wsMTc3NTAwMTYwMAFrq9U7irFx",
+      "claim": null
+    }
+  ]
+}
