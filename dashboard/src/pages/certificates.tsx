@@ -4,6 +4,7 @@ import { useState, type ChangeEvent, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Confirm } from "@/components/confirm";
 import { FormError } from "@/components/form-error";
+import { Can } from "@/components/can";
 import { PageHeader } from "@/components/layout/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -111,9 +112,11 @@ export function CertificatesPage() {
     <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader title={t("certificates.title")} subtitle={t("certificates.subtitle")} />
-        <Button onClick={() => setOpen(true)}>
+        <Can perm="certificates.write">
+<Button onClick={() => setOpen(true)}>
           <PlusIcon /> {t("certificates.add")}
         </Button>
+</Can>
       </div>
       <FormError error={certificates.error} />
       <Card>
@@ -161,7 +164,8 @@ export function CertificatesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end">
+                        <Can perm="certificates.write">
+<div className="flex justify-end">
                           <Confirm
                             title={t("certificates.deleteTitle")}
                             body={t("certificates.deleteBody", { name: certificate.name })}
@@ -177,6 +181,7 @@ export function CertificatesPage() {
                             )}
                           />
                         </div>
+</Can>
                       </TableCell>
                     </TableRow>
                   );

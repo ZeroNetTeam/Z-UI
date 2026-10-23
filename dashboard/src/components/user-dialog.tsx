@@ -12,6 +12,7 @@ import { SelectField } from "@/components/ui/select";
 import { SwitchField } from "@/components/ui/switch";
 import { TextareaField } from "@/components/ui/textarea";
 import { api, post, put, type Connected, type User, type UserTemplate } from "@/lib/api";
+import { authKey } from "@/lib/auth";
 import { emptyForm, expiryIn, fromUser, toPayload, withTemplate, type UserForm } from "@/lib/user-form";
 import { daysUntil, formatDate, relative, resetStrategies } from "@/lib/users";
 import { cn } from "@/lib/utils";
@@ -125,6 +126,8 @@ export function UserDialog({
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["users"] });
       await client.invalidateQueries({ queryKey: ["groups"] });
+      // A reseller's quota counts their users.
+      await client.invalidateQueries({ queryKey: authKey });
       onOpenChange(false);
     },
   });

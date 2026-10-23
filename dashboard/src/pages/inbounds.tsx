@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Confirm } from "@/components/confirm";
 import { FormError } from "@/components/form-error";
 import { InboundDialog } from "@/components/inbound-dialog";
+import { Can } from "@/components/can";
 import { PageHeader } from "@/components/layout/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, del, put, type Certificate, type Inbound } from "@/lib/api";
 import { summary } from "@/lib/inbound-form";
 import { useOpenFromLink } from "@/lib/open-from-link";
+import { useCan } from "@/lib/permissions";
 
 export function useCertificates() {
   return useQuery({ queryKey: ["certificates"], queryFn: () => api<Certificate[]>("certificates") });
@@ -25,6 +27,7 @@ export function InboundsPage() {
   const client = useQueryClient();
   const inbounds = useQuery({ queryKey: ["inbounds"], queryFn: () => api<Inbound[]>("inbounds") });
   const certificates = useCertificates();
+  const canWrite = useCan("inbounds.write");
   const [editing, setEditing] = useState<Inbound | undefined>();
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -55,7 +58,8 @@ export function InboundsPage() {
     <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader title={t("inbounds.title")} subtitle={t("inbounds.subtitle")} />
-        <Button
+        <Can perm="inbounds.write">
+<Button
           onClick={() => {
             setEditing(undefined);
             setOpen(true);
@@ -63,6 +67,7 @@ export function InboundsPage() {
         >
           <PlusIcon /> {t("inbounds.add")}
         </Button>
+</Can>
       </div>
 
       {notice && (
@@ -119,12 +124,13 @@ export function InboundsPage() {
                       <Switch
                         label={t("common.enabled")}
                         checked={inbound.enabled}
-                        disabled={toggle.isPending}
+                        disabled={toggle.isPending || !canWrite}
                         onCheckedChange={(enabled) => toggle.mutate({ id: inbound.id, enabled })}
                       />
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-1">
+                      <Can perm="inbounds.write">
+<div className="flex justify-end gap-1">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -152,6 +158,7 @@ export function InboundsPage() {
                           )}
                         />
                       </div>
+</Can>
                     </TableCell>
                   </TableRow>
                 ))}

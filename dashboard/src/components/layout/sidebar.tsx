@@ -2,12 +2,21 @@ import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
+import { can, useMe } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { navigation } from "./navigation";
 
 /** The panel's navigation: the same in the desktop column and the phone sheet. */
 export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useTranslation();
+  const admin = useMe();
+  // Only what this admin may open; a group with nothing left is not shown.
+  const groups = navigation
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => (!item.sudo || can(admin, "sudo")) && (!item.needs || can(admin, item.needs))),
+    }))
+    .filter((group) => group.items.length > 0);
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 px-4 py-5">
@@ -18,7 +27,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
-        {navigation.map((group) => (
+        {groups.map((group) => (
           <div key={group.label}>
             <div className="px-2 pb-1.5 text-xs font-medium text-muted-foreground">
               {t(`nav.${group.label}`)}

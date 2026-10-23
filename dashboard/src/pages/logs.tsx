@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { api, put, type LogLevel, type LogLevelView, type LogRecord } from "@/lib/api";
+import { useCan } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 /** How many lines the page keeps; older ones scroll away for good. */
@@ -36,6 +37,7 @@ type Connection = "connecting" | "live" | "lost";
 export function LogsPage() {
   const { t } = useTranslation();
   const client = useQueryClient();
+  const canWrite = useCan("logs.write");
   const processLevel = useQuery({ queryKey: ["logs", "level"], queryFn: () => api<LogLevelView>("logs/level") });
   const setProcessLevel = useMutation({
     mutationFn: (level: string) => put<LogLevelView>("logs/level", { level }),
@@ -177,7 +179,7 @@ export function LogsPage() {
           id="process-level"
           className="w-52"
           value={processLevel.data && (levels as string[]).includes(processLevel.data.level) ? processLevel.data.level : "custom"}
-          disabled={!processLevel.data || processLevel.data.fixed || setProcessLevel.isPending}
+          disabled={!canWrite || !processLevel.data || processLevel.data.fixed || setProcessLevel.isPending}
           onChange={(e) => setProcessLevel.mutate(e.target.value)}
         >
           {processLevel.data && !(levels as string[]).includes(processLevel.data.level) && <option value="custom">{t("logs.levelCustom")}</option>}

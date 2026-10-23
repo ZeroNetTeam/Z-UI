@@ -104,8 +104,13 @@ function UserMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-44">
-        <DropdownMenuLabel dir="ltr" className="text-start">
-          {admin.username}
+        <DropdownMenuLabel className="text-start">
+          <span dir="ltr" className="block">
+            {admin.username}
+          </span>
+          <span className="block text-xs font-normal text-muted-foreground">
+            {admin.is_sudo ? t("access.kindSudo") : (admin.role?.name ?? "")}
+          </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>

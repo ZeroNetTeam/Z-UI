@@ -47,7 +47,7 @@ pub const LOG_LEVEL_SETTING: &str = "log.level";
     info(
         title = "Z-UI API",
         description = "The panel's JSON API: everything the dashboard does, so scripts and bots can do the same.\n\n\
-**Signing in.** Either sign in (`POST /auth/login`), which sets a session cookie, or send an API key made under *API → Keys* as `Authorization: Bearer zk_…` (or `X-API-Key`). A key acts as its admin, with at most the permissions it was given and only from the addresses it names.\n\n\
+**Signing in.** Either sign in (`POST /auth/login`), which sets a session cookie, or send an API key made under API → Keys as `Authorization: Bearer zk_…` (or `X-API-Key`). A key acts as its admin, with at most the permissions it was given and only from the addresses it names.\n\n\
 **Permissions.** Each operation says what it needs (`x-permission`): `<section>.read` for reading, `<section>.write` for changing. `sudo` operations are for sudo admins only; `session` ones need a sign-in, not a key.\n\n\
 **Errors.** A failed request answers with an HTTP status and `{ \"error\": code, \"message\": text }`; the code is stable.",
         license(name = "GPL-3.0-or-later"),

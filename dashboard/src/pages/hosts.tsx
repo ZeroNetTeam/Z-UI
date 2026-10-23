@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Confirm } from "@/components/confirm";
 import { FormError } from "@/components/form-error";
+import { Can } from "@/components/can";
 import { PageHeader } from "@/components/layout/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -153,7 +154,8 @@ export function HostsPage() {
     <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader title={t("hosts.title")} subtitle={t("hosts.subtitle")} />
-        <Button
+        <Can perm="hosts.write">
+<Button
           disabled={noInbound}
           title={noInbound ? t("hosts.needInbound") : undefined}
           onClick={() => {
@@ -163,6 +165,7 @@ export function HostsPage() {
         >
           <PlusIcon /> {t("hosts.add")}
         </Button>
+</Can>
       </div>
       <FormError error={hosts.error} />
       <Card>
@@ -204,7 +207,8 @@ export function HostsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end gap-1">
+                        <Can perm="hosts.write">
+<div className="flex justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -231,6 +235,7 @@ export function HostsPage() {
                             )}
                           />
                         </div>
+</Can>
                       </TableCell>
                     </TableRow>
                   );

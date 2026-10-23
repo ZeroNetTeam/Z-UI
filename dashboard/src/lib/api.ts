@@ -70,12 +70,36 @@ export interface Health {
   core: NodeStatus;
 }
 
+export interface RoleRef {
+  id: number;
+  name: string;
+}
+
+/** What an admin has handed out and may still hand out. */
+export interface Quota {
+  user_limit: number;
+  data_quota: number;
+  users: number;
+  allocated: number;
+  unlimited: number;
+  used: number;
+}
+
+/** The admin using the dashboard, and what they may do. */
 export interface Admin {
   id: number;
   username: string;
   is_sudo: boolean;
   totp_enabled: boolean;
   last_login_at: number | null;
+  role: RoleRef | null;
+  /** Every `<section>.<level>` they may use; a sudo admin has them all. */
+  permissions: string[];
+  /** They see and change only the users they made. */
+  own_users_only: boolean;
+  /** The groups they may give users; empty for every group. */
+  group_ids: number[];
+  quota: Quota;
 }
 
 export interface AuthState {
@@ -186,6 +210,9 @@ export interface User {
   uuid: string;
   password: string;
   sub_token: string;
+  /** The admin who owns the user, and their name. */
+  admin_id: number | null;
+  owner: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -381,4 +408,102 @@ export interface IranOptions {
 export interface LogLevelView {
   level: string;
   fixed: boolean;
+}
+
+/** An admin as a sudo admin sees them. */
+export interface AdminRow {
+  id: number;
+  username: string;
+  is_sudo: boolean;
+  enabled: boolean;
+  role_id: number | null;
+  role: string | null;
+  totp_enabled: boolean;
+  last_login_at: number | null;
+  created_at: number;
+  user_limit: number;
+  data_quota: number;
+  group_ids: number[];
+  note: string;
+  users: number;
+  allocated: number;
+  unlimited: number;
+  used: number;
+  keys: number;
+}
+
+export interface AdminPayload {
+  username?: string;
+  password?: string;
+  is_sudo: boolean;
+  role_id: number | null;
+  enabled: boolean;
+  user_limit: number;
+  data_quota: number;
+  group_ids: number[];
+  note: string;
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  permissions: string[];
+  own_users_only: boolean;
+  admins: number;
+  created_at: number;
+}
+
+export interface RoleList {
+  catalog: { section: string; writable: boolean }[];
+  roles: Role[];
+}
+
+export interface RolePayload {
+  name: string;
+  permissions: string[];
+  own_users_only: boolean;
+}
+
+export interface ApiKey {
+  id: number;
+  name: string;
+  prefix: string;
+  full: boolean;
+  permissions: string[];
+  allowed_ips: string[];
+  expires_at: number | null;
+  expired: boolean;
+  last_used_at: number | null;
+  last_used_ip: string | null;
+  created_at: number;
+}
+
+/** A key just made: the only time its secret is shown. */
+export interface ApiKeyCreated extends ApiKey {
+  key: string;
+}
+
+export interface ApiKeyPayload {
+  name: string;
+  permissions: "*" | string[];
+  allowed_ips: string[];
+  expires_at: number | null;
+}
+
+export interface AuditEntry {
+  id: number;
+  at: number;
+  admin_id: number | null;
+  admin: string;
+  via: string;
+  ip: string;
+  action: string;
+  target: string;
+  detail: string;
+  status: number;
+}
+
+export interface AuditPage {
+  entries: AuditEntry[];
+  next: number | null;
 }

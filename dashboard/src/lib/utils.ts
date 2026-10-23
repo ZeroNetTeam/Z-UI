@@ -41,3 +41,8 @@ export function formatDuration(seconds: number, locale: string): string {
   if (minutes > 0) return unit(minutes, "minute");
   return unit(Math.max(0, Math.floor(seconds)), "second");
 }
+
+/** `text` kept in one piece in a right-to-left sentence, so "5 GB" and "10 GB" do not swap around the words between them. */
+export function isolate(text: string): string {
+  return `\u2066${text}\u2069`;
+}

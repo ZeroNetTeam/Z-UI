@@ -29,6 +29,8 @@ const user: User = {
   uuid: "u",
   password: "p",
   sub_token: "t",
+  admin_id: null,
+  owner: null,
   created_at: 0,
   updated_at: 0,
 };

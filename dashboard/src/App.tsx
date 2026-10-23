@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { Layout } from "@/components/layout/layout";
@@ -6,12 +7,16 @@ import { pages } from "@/components/layout/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { basename } from "@/lib/basename";
 import { ThemeProvider } from "@/lib/theme";
+import { Gate } from "@/components/gate";
 import { RequireAdmin } from "@/components/require-admin";
 import { setUnauthorizedHandler } from "@/lib/api";
 import { authKey } from "@/lib/auth";
+import { AdminsPage } from "@/pages/admins";
+import { AuditPage } from "@/pages/audit";
 import { CertificatesPage } from "@/pages/certificates";
 import { CorePage } from "@/pages/core";
 import { DashboardPage } from "@/pages/dashboard";
+import { DeveloperPage } from "@/pages/developer";
 import { GroupsPage } from "@/pages/groups";
 import { HostsPage } from "@/pages/hosts";
 import { InboundsPage } from "@/pages/inbounds";
@@ -31,6 +36,22 @@ const queryClient = new QueryClient({
 // A session that ends while the page is open sends it back to sign in.
 setUnauthorizedHandler(() => void queryClient.invalidateQueries({ queryKey: authKey }));
 
+/** The page behind each place in the navigation. */
+const screens: Record<string, ReactNode> = {
+  "/settings": <SettingsPage />,
+  "/users": <UsersPage />,
+  "/inbounds": <InboundsPage />,
+  "/groups": <GroupsPage />,
+  "/templates": <TemplatesPage />,
+  "/hosts": <HostsPage />,
+  "/certificates": <CertificatesPage />,
+  "/logs": <LogsPage />,
+  "/core": <CorePage />,
+  "/admins": <AdminsPage />,
+  "/audit": <AuditPage />,
+  "/developer": <DeveloperPage />,
+};
+
 const router = createBrowserRouter(
   [
     { path: "login", element: <LoginPage /> },
@@ -43,18 +64,13 @@ const router = createBrowserRouter(
       ),
       children: [
         { index: true, element: <DashboardPage /> },
-        { path: "settings", element: <SettingsPage /> },
-        { path: "users", element: <UsersPage /> },
-        { path: "inbounds", element: <InboundsPage /> },
-        { path: "groups", element: <GroupsPage /> },
-        { path: "templates", element: <TemplatesPage /> },
-        { path: "hosts", element: <HostsPage /> },
-        { path: "certificates", element: <CertificatesPage /> },
-        { path: "logs", element: <LogsPage /> },
-        { path: "core", element: <CorePage /> },
+        // Each page opens only for an admin the navigation says may.
         ...pages
-          .filter((item) => item.phase !== undefined)
-          .map((item) => ({ path: item.to.slice(1), element: <PlaceholderPage item={item} /> })),
+          .filter((item) => screens[item.to] || item.phase !== undefined)
+          .map((item) => ({
+            path: item.to.slice(1),
+            element: <Gate to={item.to}>{screens[item.to] ?? <PlaceholderPage item={item} />}</Gate>,
+          })),
         { path: "*", element: <NotFoundPage /> },
       ],
     },

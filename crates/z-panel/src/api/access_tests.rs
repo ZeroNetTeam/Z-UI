@@ -278,6 +278,22 @@ async fn admins_are_made_protected_disabled_and_removed_by_a_sudo_admin() {
     )
     .await;
 
+    // The log says in words what the admin was made.
+    let log = panel
+        .get("/api/audit?action=admin.", Some(&owner))
+        .await
+        .json();
+    let made = log["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["action"] == "admin.create" && e["target"] == "shop")
+        .unwrap_or_else(|| panic!("{log}"));
+    assert_eq!(
+        made["detail"],
+        "role Reseller, enabled, users: 3, data: 10.0 GB"
+    );
+
     // What the dashboard learns about whoever signed in.
     let me = panel.get("/api/auth/me", Some(&shop)).await.json();
     assert_eq!(me["role"]["name"], "Reseller");

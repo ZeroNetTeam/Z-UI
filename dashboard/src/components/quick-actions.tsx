@@ -2,6 +2,7 @@ import {
   BookmarkIcon,
   BoxesIcon,
   FileKey2Icon,
+  KeyRoundIcon,
   LayoutTemplateIcon,
   NetworkIcon,
   RouteIcon,
@@ -13,9 +14,9 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { can, useMe } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 interface Action {
@@ -23,31 +24,34 @@ interface Action {
   icon: LucideIcon;
   /** Where it goes: the page, with `?new=…` to open its create dialog. */
   to: string;
-  /** Not built yet: shown, not usable. */
-  soon?: boolean;
+  /** The permission it takes (`users.write`, or `sudo`); absent for any admin. */
+  needs?: string;
 }
 
 const groups: { id: string; actions: Action[] }[] = [
   {
     id: "users",
     actions: [
-      { id: "user", icon: UserPlusIcon, to: "/users?new=user" },
-      { id: "group", icon: BoxesIcon, to: "/groups?new=group" },
-      { id: "template", icon: LayoutTemplateIcon, to: "/templates?new=template" },
+      { id: "user", icon: UserPlusIcon, to: "/users?new=user", needs: "users.write" },
+      { id: "group", icon: BoxesIcon, to: "/groups?new=group", needs: "groups.write" },
+      { id: "template", icon: LayoutTemplateIcon, to: "/templates?new=template", needs: "templates.write" },
     ],
   },
   {
     id: "server",
     actions: [
-      { id: "inbound", icon: WaypointsIcon, to: "/inbounds?new=inbound" },
-      { id: "host", icon: NetworkIcon, to: "/hosts?new=host" },
-      { id: "outbound", icon: RouteIcon, to: "/core?new=outbound" },
-      { id: "certificate", icon: FileKey2Icon, to: "/certificates?new=certificate" },
+      { id: "inbound", icon: WaypointsIcon, to: "/inbounds?new=inbound", needs: "inbounds.write" },
+      { id: "host", icon: NetworkIcon, to: "/hosts?new=host", needs: "hosts.write" },
+      { id: "outbound", icon: RouteIcon, to: "/core?new=outbound", needs: "core.write" },
+      { id: "certificate", icon: FileKey2Icon, to: "/certificates?new=certificate", needs: "certificates.write" },
     ],
   },
   {
     id: "management",
-    actions: [{ id: "admin", icon: ShieldCheckIcon, to: "/admins", soon: true }],
+    actions: [
+      { id: "admin", icon: ShieldCheckIcon, to: "/admins?new=admin", needs: "sudo" },
+      { id: "apiKey", icon: KeyRoundIcon, to: "/developer?tab=keys", needs: "api.write" },
+    ],
   },
 ];
 
@@ -56,6 +60,12 @@ export function QuickActions() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const admin = useMe();
+  // Only what this admin may make; a group with nothing left is not shown.
+  const shown = groups
+    .map((group) => ({ ...group, actions: group.actions.filter((action) => !action.needs || can(admin, action.needs)) }))
+    .filter((group) => group.actions.length > 0);
+  if (shown.length === 0) return null;
   return (
     <>
       <Button variant="outline" onClick={() => setOpen(true)}>
@@ -64,7 +74,7 @@ export function QuickActions() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent title={t("quick.title")} description={t("quick.subtitle")} className="max-w-2xl">
           <div className="grid gap-5">
-            {groups.map((group) => (
+            {shown.map((group) => (
               <section key={group.id} aria-labelledby={`quick-${group.id}`}>
                 <h3 id={`quick-${group.id}`} className="mb-2 text-xs font-medium text-muted-foreground">
                   {t(`quick.group_${group.id}`)}
@@ -74,14 +84,12 @@ export function QuickActions() {
                     <button
                       key={action.id}
                       type="button"
-                      disabled={action.soon}
                       onClick={() => {
                         setOpen(false);
                         void navigate(action.to);
                       }}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg border p-3 text-start transition-colors",
-                        action.soon ? "cursor-not-allowed opacity-60" : "hover:border-primary/50 hover:bg-accent",
+                        "flex items-center gap-3 rounded-lg border p-3 text-start transition-colors hover:border-primary/50 hover:bg-accent",
                       )}
                     >
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -90,7 +98,6 @@ export function QuickActions() {
                       <span className="min-w-0">
                         <span className="flex items-center gap-2 text-sm font-medium">
                           {t(`quick.${action.id}`)}
-                          {action.soon && <Badge variant="outline">{t("nav.soon")}</Badge>}
                         </span>
                         <span className="block text-xs text-muted-foreground">{t(`quick.${action.id}Hint`)}</span>
                       </span>

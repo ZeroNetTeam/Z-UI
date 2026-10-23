@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field } from "@/components/ui/field";
 import { post, type Admin, type TotpSetup } from "@/lib/api";
 import { useAuth, useAuthChanged } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 
 function PasswordCard() {
   const { t } = useTranslation();
@@ -227,7 +228,11 @@ export function SettingsPage() {
     <>
       <PageHeader title={t("settings.title")} subtitle={t("settings.subtitle")} />
       <div className="grid gap-4">
-        <SubscriptionSettingsCard />
+        {can(admin, "settings.read") && (
+          <fieldset disabled={!can(admin, "settings.write")} className="m-0 min-w-0 border-0 p-0">
+            <SubscriptionSettingsCard />
+          </fieldset>
+        )}
         <PasswordCard />
         {admin && <TotpCard admin={admin} />}
       </div>

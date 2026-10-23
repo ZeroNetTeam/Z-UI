@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Confirm } from "@/components/confirm";
 import { FormError } from "@/components/form-error";
+import { Can } from "@/components/can";
 import { PageHeader } from "@/components/layout/layout";
 import { InboundPicker, useGroups, useInbounds } from "@/components/pickers";
 import { Badge } from "@/components/ui/badge";
@@ -82,7 +83,8 @@ export function GroupsPage() {
     <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader title={t("groups.title")} subtitle={t("groups.subtitle")} />
-        <Button
+        <Can perm="groups.write">
+<Button
           onClick={() => {
             setEditing(undefined);
             setOpen(true);
@@ -90,6 +92,7 @@ export function GroupsPage() {
         >
           <PlusIcon /> {t("groups.add")}
         </Button>
+</Can>
       </div>
       <div className="mb-4">
         <FormError error={groups.error} />
@@ -137,7 +140,8 @@ export function GroupsPage() {
                     </TableCell>
                     <TableCell className="tabular">{number(group.users)}</TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-1">
+                      <Can perm="groups.write">
+<div className="flex justify-end gap-1">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -165,6 +169,7 @@ export function GroupsPage() {
                           )}
                         />
                       </div>
+</Can>
                     </TableCell>
                   </TableRow>
                 ))}

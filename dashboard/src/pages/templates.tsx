@@ -5,6 +5,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Confirm } from "@/components/confirm";
 import { FormError } from "@/components/form-error";
+import { Can } from "@/components/can";
 import { PageHeader } from "@/components/layout/layout";
 import { GroupPicker, useGroups } from "@/components/pickers";
 import { useTemplates } from "@/components/user-dialog";
@@ -170,7 +171,8 @@ export function TemplatesPage() {
     <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader title={t("templates.title")} subtitle={t("templates.subtitle")} />
-        <Button
+        <Can perm="templates.write">
+<Button
           onClick={() => {
             setEditing(undefined);
             setOpen(true);
@@ -178,6 +180,7 @@ export function TemplatesPage() {
         >
           <PlusIcon /> {t("templates.add")}
         </Button>
+</Can>
       </div>
       <div className="mb-4">
         <FormError error={templates.error} />
@@ -200,7 +203,8 @@ export function TemplatesPage() {
             <Card key={template.id}>
               <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
                 <CardTitle className="truncate">{template.name}</CardTitle>
-                <div className="flex shrink-0 gap-1">
+                <Can perm="templates.write">
+<div className="flex shrink-0 gap-1">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -228,6 +232,7 @@ export function TemplatesPage() {
                     )}
                   />
                 </div>
+</Can>
               </CardHeader>
               <CardContent className="grid gap-2.5">
                 <Line icon={DatabaseIcon}>

@@ -224,7 +224,7 @@ pub async fn create(
                 format!("there is already an admin {username:?}"),
             )
         })?;
-    let detail = describe(&fields);
+    let detail = describe(&state, &fields).await;
     let audit = Audit::new("admin.create", &admin.username).detail(detail);
     Ok((
         StatusCode::CREATED,
@@ -233,22 +233,36 @@ pub async fn create(
     ))
 }
 
-/// What an admin was set to, for the audit log.
-fn describe(fields: &z_db::AdminFields) -> String {
+/// What an admin was set to, in words, for the audit log.
+async fn describe(state: &AppState, fields: &z_db::AdminFields) -> String {
+    let who = if fields.is_sudo {
+        "sudo".to_string()
+    } else {
+        match fields.role_id {
+            Some(id) => match state.db().role(id).await {
+                Ok(Some(role)) => format!("role {}", role.name),
+                _ => format!("role #{id}"),
+            },
+            None => "no role".to_string(),
+        }
+    };
+    let quota = if fields.data_quota > 0 {
+        format!("{:.1} GB", fields.data_quota as f64 / (1u64 << 30) as f64)
+    } else {
+        "no cap".to_string()
+    };
+    let users = if fields.user_limit > 0 {
+        fields.user_limit.to_string()
+    } else {
+        "any number".to_string()
+    };
     format!(
-        "{}, {}, user limit {}, data quota {}",
-        if fields.is_sudo {
-            "sudo".to_string()
-        } else {
-            format!("role #{}", fields.role_id.unwrap_or(0))
-        },
+        "{who}, {}, users: {users}, data: {quota}",
         if fields.enabled {
             "enabled"
         } else {
             "disabled"
         },
-        fields.user_limit,
-        fields.data_quota
     )
 }
 
@@ -297,7 +311,7 @@ pub async fn update(
         .update_admin(id, &fields)
         .await?
         .ok_or_else(not_found)?;
-    let mut detail = describe(&fields);
+    let mut detail = describe(&state, &fields).await;
     if let Some(secret) = input.password.as_deref().filter(|s| !s.is_empty()) {
         let hash = password::hash(secret).await?;
         state.db().set_admin_password(id, &hash).await?;

@@ -16,6 +16,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, post, put, type CoreView, type CoreWarning } from "@/lib/api";
 import { canonical, type Json } from "@/lib/core-form";
+import { useCan } from "@/lib/permissions";
 
 const tabs = ["outbounds", "routing", "dns", "zray", "json"] as const;
 type Tab = (typeof tabs)[number];
@@ -48,6 +49,7 @@ function Warnings({ warnings }: { warnings: CoreWarning[] }) {
 export function CorePage() {
   const { t } = useTranslation();
   const client = useQueryClient();
+  const canWrite = useCan("core.write");
   const core = useQuery({ queryKey: ["core"], queryFn: () => api<CoreView>("core"), refetchInterval: 15_000 });
   const [tab, setTab] = useState<Tab>("outbounds");
   // What is being edited; the stored settings stay as they are until applied.
@@ -128,20 +130,23 @@ export function CorePage() {
         options={tabs.map((value) => ({ value, label: t(`core.tab_${value}`) }))}
       />
 
-      {tab === "outbounds" && <OutboundsTab {...props} />}
-      {tab === "routing" && <RoutingTab {...props} />}
-      {tab === "dns" && <DnsTab {...props} />}
-      {tab === "zray" && (
-        <ZrayTab
-          {...props}
-          onPropose={(proposed, warnings) => {
-            replaceAll(proposed);
-            setOutcome({ kind: "proposed", warnings });
-            setTab("outbounds");
-          }}
-        />
-      )}
-      {tab === "json" && <JsonTab settings={draft} core={view} replace={replaceAll} />}
+      {/* Someone who may only look gets the editor with every control off. */}
+      <fieldset disabled={!canWrite} className="m-0 min-w-0 border-0 p-0">
+        {tab === "outbounds" && <OutboundsTab {...props} />}
+        {tab === "routing" && <RoutingTab {...props} />}
+        {tab === "dns" && <DnsTab {...props} />}
+        {tab === "zray" && (
+          <ZrayTab
+            {...props}
+            onPropose={(proposed, warnings) => {
+              replaceAll(proposed);
+              setOutcome({ kind: "proposed", warnings });
+              setTab("outbounds");
+            }}
+          />
+        )}
+        {tab === "json" && <JsonTab settings={draft} core={view} replace={replaceAll} />}
+      </fieldset>
 
       <Card className={dirty || outcome ? "sticky bottom-4 z-20 mt-4 shadow-lg" : "mt-4"}>
         <CardContent className="p-4">

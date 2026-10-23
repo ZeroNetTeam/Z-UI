@@ -17,6 +17,8 @@ import { Sparkline } from "@/components/charts/sparkline";
 import { StackedColumns } from "@/components/charts/stacked-columns";
 import { PageHeader } from "@/components/layout/layout";
 import { QuickActions } from "@/components/quick-actions";
+import { QuotaCard } from "@/components/quota-card";
+import { can, useMe } from "@/lib/permissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -347,6 +349,11 @@ function TrafficSection() {
 
 export function DashboardPage() {
   const { t, i18n } = useTranslation();
+  // What is shown is what this admin may see: users, the server, the traffic.
+  const me = useMe();
+  const canUsers = can(me, "users.read");
+  const canMonitor = can(me, "monitor.read");
+  const ownOnly = !!me?.own_users_only;
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => api<Health>("health"),
@@ -356,6 +363,7 @@ export function DashboardPage() {
     queryKey: ["monitor", "system"],
     queryFn: () => api<SystemView>("monitor/system?minutes=60"),
     refetchInterval: 10_000,
+    enabled: canMonitor,
   });
   const counts = useUserCounts();
   // The lifetime total comes with the traffic query; the tile reads it from there.
@@ -363,6 +371,7 @@ export function DashboardPage() {
     queryKey: ["monitor", "traffic", "lifetime"],
     queryFn: () => api<TrafficView>("monitor/traffic?days=1&top=0"),
     refetchInterval: 60_000,
+    enabled: canUsers,
   });
   const number = (value: number) => new Intl.NumberFormat(i18n.language).format(value);
 
@@ -386,8 +395,10 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader title={t("dashboard.title")} subtitle={t("dashboard.subtitle")} action={<QuickActions />} />
+      <QuotaCard />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile
+        {canUsers && (
+<Tile
           icon={UsersIcon}
           title={t("dashboard.users")}
           hint={counts.data ? t("dashboard.usersHint", { online: counts.data.online ?? 0, active: counts.data.active ?? 0 }) : undefined}
@@ -406,10 +417,14 @@ export function DashboardPage() {
             <Skeleton className="h-12" />
           )}
         </Tile>
-        <Tile icon={ActivityIcon} title={t("dashboard.sessions")} hint={t("dashboard.sessionsHint")}>
+)}
+        {!ownOnly && (
+<Tile icon={ActivityIcon} title={t("dashboard.sessions")} hint={t("dashboard.sessionsHint")}>
           {data ? <Figure>{number(data.core.active_sessions)}</Figure> : <Skeleton className="h-8 w-20" />}
         </Tile>
-        <Tile icon={WaypointsIcon} title={t("monitor.lifetime")} hint={t("monitor.lifetimeHint")}>
+)}
+        {canUsers && (
+<Tile icon={WaypointsIcon} title={t("monitor.lifetime")} hint={ownOnly ? t("monitor.lifetimeHintOwn") : t("monitor.lifetimeHint")}>
           {lifetime.data ? (
             <Figure>
               <span dir="ltr">{formatBytes(lifetime.data.lifetime, i18n.language)}</span>
@@ -418,7 +433,9 @@ export function DashboardPage() {
             <Skeleton className="h-8 w-28" />
           )}
         </Tile>
-        <Tile icon={CpuIcon} title={t("dashboard.core")} hint={data?.core.core_version}>
+)}
+        {!ownOnly && (
+<Tile icon={CpuIcon} title={t("dashboard.core")} hint={data?.core.core_version}>
           {data ? (
             <>
               {data.core.running ? (
@@ -438,16 +455,17 @@ export function DashboardPage() {
             <Skeleton className="h-12" />
           )}
         </Tile>
+)}
       </div>
 
-      {data && !data.core.running && (
+      {data && !ownOnly && !data.core.running && (
         <Card className="mt-4 border-primary/30 bg-primary/5">
           <CardContent className="p-5 text-sm">{t("dashboard.noCore")}</CardContent>
         </Card>
       )}
 
-      <ServerSection system={system.data} />
-      <TrafficSection />
+      {canMonitor && <ServerSection system={system.data} />}
+      {canUsers && <TrafficSection />}
     </>
   );
 }

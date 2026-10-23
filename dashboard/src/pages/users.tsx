@@ -28,6 +28,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AmountDialog } from "@/components/amount-dialog";
 import { Confirm } from "@/components/confirm";
+import { QuotaCard } from "@/components/quota-card";
 import { FormError } from "@/components/form-error";
 import { PageHeader } from "@/components/layout/layout";
 import { GroupPicker, useGroups } from "@/components/pickers";
@@ -50,7 +51,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, del, post, type BulkAction, type User, type UserCounts, type UserPage, type UserSubscription } from "@/lib/api";
+import { api, del, post, type AdminRow, type BulkAction, type User, type UserCounts, type UserPage, type UserSubscription } from "@/lib/api";
+import { authKey } from "@/lib/auth";
+import { useCan, useMe } from "@/lib/permissions";
 import { GB, statuses } from "@/lib/users";
 import { useOpenFromLink } from "@/lib/open-from-link";
 import { cn } from "@/lib/utils";
@@ -68,7 +71,8 @@ function useSettled<T>(value: T, ms = 300): T {
 }
 
 export function useUserCounts() {
-  return useQuery({ queryKey: ["users", "counts"], queryFn: () => api<UserCounts>("users/counts"), refetchInterval: 10_000 });
+  const allowed = useCan("users.read");
+  return useQuery({ queryKey: ["users", "counts"], queryFn: () => api<UserCounts>("users/counts"), refetchInterval: 10_000, enabled: allowed });
 }
 
 export function UsersPage() {
@@ -76,9 +80,15 @@ export function UsersPage() {
   const client = useQueryClient();
   const groups = useGroups();
   const counts = useUserCounts();
+  const me = useMe();
+  const canWrite = useCan("users.write");
+  // Who owns which user matters to those who see everyone's; a sudo admin can also pick one.
+  const showOwner = !me?.own_users_only;
+  const owners = useQuery({ queryKey: ["admins"], queryFn: () => api<AdminRow[]>("admins"), enabled: !!me?.is_sudo });
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [group, setGroup] = useState("");
+  const [owner, setOwner] = useState("");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<number[]>([]);
   const [editing, setEditing] = useState<User | undefined>();
@@ -92,12 +102,13 @@ export function UsersPage() {
   useEffect(() => {
     setOffset(0);
     setSelected([]);
-  }, [query, status, group]);
+  }, [query, status, group, owner]);
 
   const params = new URLSearchParams({ offset: String(offset), limit: String(PAGE) });
   if (query) params.set("search", query);
   if (status) params.set("status", status);
   if (group) params.set("group", group);
+  if (owner) params.set("owner", owner);
   const users = useQuery({
     queryKey: ["users", "list", params.toString()],
     queryFn: () => api<UserPage>(`users?${params}`),
@@ -105,7 +116,11 @@ export function UsersPage() {
     refetchInterval: 10_000,
   });
 
-  const refresh = () => client.invalidateQueries({ queryKey: ["users"] });
+  // A reseller's quota counts their users, so it is read again with them.
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: ["users"] });
+    await client.invalidateQueries({ queryKey: authKey });
+  };
   const act = useMutation({
     mutationFn: ({ id, action }: { id: number; action: "reset" | "revoke" | "end-sessions" }) => post(`users/${id}/${action}`),
     onSuccess: refresh,
@@ -131,10 +146,14 @@ export function UsersPage() {
     <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader title={t("users.title")} subtitle={t("users.subtitle")} />
-        <Button onClick={() => open()}>
-          <PlusIcon /> {t("users.add")}
-        </Button>
+        {canWrite && (
+          <Button onClick={() => open()}>
+            <PlusIcon /> {t("users.add")}
+          </Button>
+        )}
       </div>
+
+      <QuotaCard />
 
       <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0 sm:pb-0">
         {(["total", "online", ...statuses] as const).map((key) => {
@@ -181,13 +200,23 @@ export function UsersPage() {
               </option>
             ))}
           </Select>
+          {owners.data && (
+            <Select value={owner} onChange={(e) => setOwner(e.target.value)} aria-label={t("users.owner")} className="sm:w-36">
+              <option value="">{t("users.anyOwner")}</option>
+              {owners.data.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.username}
+                </option>
+              ))}
+            </Select>
+          )}
           <Button variant="outline" size="icon" aria-label={t("users.refresh")} onClick={() => void refresh()}>
             <RefreshCwIcon className={cn(users.isFetching && "animate-spin")} />
           </Button>
         </div>
       </div>
 
-      {selected.length > 0 && (
+      {canWrite && selected.length > 0 && (
         <div className="sticky top-16 z-10 mb-4 flex flex-wrap items-center gap-1 rounded-lg border border-primary/40 bg-card p-2 shadow-lg">
           <span className="px-2 text-sm font-medium">{t("users.selected", { count: selected.length })}</span>
           <Button variant="ghost" size="sm" onClick={() => bulkAct.mutate({ action: "enable" })}>
@@ -261,41 +290,46 @@ export function UsersPage() {
           ) : rows.length === 0 ? (
             <div className="flex flex-col items-center gap-3 p-10 text-center text-sm text-muted-foreground">
               <UsersIcon className="size-8 text-primary/60" />
-              {query || status || group ? t("users.noMatch") : t("users.empty")}
+              {query || status || group || owner ? t("users.noMatch") : t("users.empty")}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-10">
-                    <Checkbox
-                      aria-label={t("users.selectPage")}
-                      checked={allOnPage}
-                      onChange={(e) =>
-                        setSelected(
-                          e.target.checked
-                            ? [...new Set([...selected, ...rows.map((user) => user.id)])]
-                            : selected.filter((id) => !rows.some((user) => user.id === id)),
-                        )
-                      }
-                    />
-                  </TableHead>
+                  {canWrite && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        aria-label={t("users.selectPage")}
+                        checked={allOnPage}
+                        onChange={(e) =>
+                          setSelected(
+                            e.target.checked
+                              ? [...new Set([...selected, ...rows.map((user) => user.id)])]
+                              : selected.filter((id) => !rows.some((user) => user.id === id)),
+                          )
+                        }
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>{t("users.username")}</TableHead>
                   <TableHead>{t("users.statusLabel")}</TableHead>
                   <TableHead className="hidden md:table-cell">{t("users.usage")}</TableHead>
+                  {showOwner && <TableHead className="hidden lg:table-cell">{t("users.owner")}</TableHead>}
                   <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((user) => (
-                  <TableRow key={user.id} className="cursor-pointer" onClick={() => open(user)}>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        aria-label={user.username}
-                        checked={selected.includes(user.id)}
-                        onChange={(e) => setSelected(e.target.checked ? [...selected, user.id] : selected.filter((id) => id !== user.id))}
-                      />
-                    </TableCell>
+                  <TableRow key={user.id} className="cursor-pointer" onClick={() => (canWrite ? open(user) : setUsageOf(user))}>
+                    {canWrite && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          aria-label={user.username}
+                          checked={selected.includes(user.id)}
+                          onChange={(e) => setSelected(e.target.checked ? [...selected, user.id] : selected.filter((id) => id !== user.id))}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div className="flex items-center gap-2.5">
                         <OnlineDot user={user} />
@@ -319,8 +353,14 @@ export function UsersPage() {
                     <TableCell className="hidden md:table-cell">
                       <UsageBar user={user} />
                     </TableCell>
+                    {showOwner && (
+                      <TableCell className="hidden text-sm text-muted-foreground lg:table-cell" dir="ltr">
+                        {user.owner ?? "—"}
+                      </TableCell>
+                    )}
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <UserActions
+                        canWrite={canWrite}
                         user={user}
                         onEdit={() => open(user)}
                         onUsage={() => setUsageOf(user)}
@@ -422,6 +462,7 @@ function RegroupDialog({
 }
 
 function UserActions({
+  canWrite,
   user,
   onEdit,
   onUsage,
@@ -429,6 +470,8 @@ function UserActions({
   onAction,
   onDelete,
 }: {
+  /** May change users, not only look at them. */
+  canWrite: boolean;
   user: User;
   onEdit: () => void;
   onUsage: () => void;
@@ -457,9 +500,11 @@ function UserActions({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={onEdit}>
-                  <PencilIcon /> {t("common.edit")}
-                </DropdownMenuItem>
+                {canWrite && (
+                  <DropdownMenuItem onSelect={onEdit}>
+                    <PencilIcon /> {t("common.edit")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onSelect={onUsage}>
                   <BarChart3Icon /> {t("users.usageChart")}
                 </DropdownMenuItem>
@@ -475,20 +520,24 @@ function UserActions({
                 >
                   <LinkIcon /> {t("subscription.copyUrl")}
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => onAction("reset")}>
-                  <RotateCcwIcon /> {t("users.resetUsage")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => onAction("end-sessions")} disabled={!user.online}>
-                  <UnplugIcon /> {t("users.endSessions")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={confirmRevoke}>
-                  <KeyRoundIcon /> {t("users.revoke")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={confirmDelete} className="text-destructive data-[highlighted]:text-destructive">
-                  <Trash2Icon /> {t("common.delete")}
-                </DropdownMenuItem>
+                {canWrite && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => onAction("reset")}>
+                      <RotateCcwIcon /> {t("users.resetUsage")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => onAction("end-sessions")} disabled={!user.online}>
+                      <UnplugIcon /> {t("users.endSessions")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={confirmRevoke}>
+                      <KeyRoundIcon /> {t("users.revoke")}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={confirmDelete} className="text-destructive data-[highlighted]:text-destructive">
+                      <Trash2Icon /> {t("common.delete")}
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
