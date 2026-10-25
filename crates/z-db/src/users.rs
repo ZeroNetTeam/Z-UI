@@ -258,6 +258,34 @@ impl Database {
         Ok(users)
     }
 
+    /// `users` (one page of them) with their groups, read for these users only.
+    async fn with_groups_of_page(&self, mut users: Vec<User>) -> Result<Vec<User>, DbError> {
+        if users.is_empty() {
+            return Ok(users);
+        }
+        // Ids that came out of this database: numbers, so safe to write in.
+        let ids = users
+            .iter()
+            .map(|user| user.id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT user_id, group_id FROM user_access_groups WHERE user_id IN ({ids}) ORDER BY group_id"
+        )))
+        .fetch_all(self.pool())
+        .await?;
+        let mut map: HashMap<i64, Vec<i64>> = HashMap::new();
+        for row in rows {
+            map.entry(row.try_get("user_id")?)
+                .or_default()
+                .push(row.try_get("group_id")?);
+        }
+        for user in &mut users {
+            user.group_ids = map.remove(&user.id).unwrap_or_default();
+        }
+        Ok(users)
+    }
+
     /// Every user, with their groups: what the core's configuration and the
     /// enforcement pass read.
     pub async fn all_users(&self) -> Result<Vec<User>, DbError> {
@@ -274,48 +302,84 @@ impl Database {
 
     /// One page of users, newest first, and how many match in all.
     pub async fn users(&self, query: &UserQuery) -> Result<(Vec<User>, i64), DbError> {
-        // Placeholders are numbered by position; a filter that is absent
-        // still binds, as a value that matches everything.
-        let search = query
+        // Only the filters that were asked for go into the query: a condition
+        // that matches everything still makes the database look at every row
+        // to count them, which a panel with many users pays on each page.
+        enum Arg {
+            Text(String),
+            Number(i64),
+        }
+        let mut clauses: Vec<String> = Vec::new();
+        let mut args: Vec<Arg> = Vec::new();
+        if let Some(search) = query
             .search
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(|s| format!("%{}%", s.to_lowercase()));
-        let filter = concat!(
-            " WHERE ($1 = '' OR LOWER(username) LIKE $1 OR LOWER(note) LIKE $1)",
-            " AND ($2 = '' OR status = $2)",
-            " AND ($3 = 0 OR id IN (SELECT user_id FROM user_access_groups WHERE group_id = $3))",
-            " AND ($4 = 0 OR admin_id = $4)"
-        );
-        let search = search.unwrap_or_default();
-        let status = query.status.clone().unwrap_or_default();
-        let group = query.group_id.unwrap_or(0);
-        let owner = query.owner.unwrap_or(0);
-        let total: i64 = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT COUNT(*) FROM users{filter}"
-        )))
-        .bind(&search)
-        .bind(&status)
-        .bind(group)
-        .bind(owner)
+        {
+            args.push(Arg::Text(format!("%{}%", search.to_lowercase())));
+            let n = args.len();
+            clauses.push(format!(
+                "(LOWER(username) LIKE ${n} OR LOWER(note) LIKE ${n})"
+            ));
+        }
+        if let Some(status) = query.status.as_deref().filter(|s| !s.is_empty()) {
+            args.push(Arg::Text(status.to_string()));
+            clauses.push(format!("status = ${}", args.len()));
+        }
+        if let Some(group) = query.group_id.filter(|g| *g != 0) {
+            args.push(Arg::Number(group));
+            clauses.push(format!(
+                "id IN (SELECT user_id FROM user_access_groups WHERE group_id = ${})",
+                args.len()
+            ));
+        }
+        if let Some(owner) = query.owner.filter(|o| *o != 0) {
+            args.push(Arg::Number(owner));
+            clauses.push(format!("admin_id = ${}", args.len()));
+        }
+        let filter = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", clauses.join(" AND "))
+        };
+        fn bind<'q>(
+            mut statement: sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments>,
+            args: &'q [Arg],
+        ) -> sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments> {
+            for arg in args {
+                statement = match arg {
+                    Arg::Text(text) => statement.bind(text.as_str()),
+                    Arg::Number(number) => statement.bind(*number),
+                };
+            }
+            statement
+        }
+        let total: i64 = bind(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "SELECT COUNT(*) FROM users{filter}"
+            ))),
+            &args,
+        )
         .fetch_one(self.pool())
         .await?
         .try_get(0)?;
-        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT {} FROM users{filter} ORDER BY id DESC LIMIT $5 OFFSET $6",
-            user_columns!()
-        )))
-        .bind(&search)
-        .bind(&status)
-        .bind(group)
-        .bind(owner)
+        let n = args.len();
+        let rows = bind(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "SELECT {} FROM users{filter} ORDER BY id DESC LIMIT ${} OFFSET ${}",
+                user_columns!(),
+                n + 1,
+                n + 2
+            ))),
+            &args,
+        )
         .bind(query.limit.clamp(1, 500))
         .bind(query.offset.max(0))
         .fetch_all(self.pool())
         .await?;
         let users = rows.into_iter().map(user).collect::<Result<_, _>>()?;
-        Ok((self.with_groups(users).await?, total))
+        Ok((self.with_groups_of_page(users).await?, total))
     }
 
     async fn one_user(&self, row: Option<AnyRow>) -> Result<Option<User>, DbError> {

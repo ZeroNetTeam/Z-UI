@@ -102,10 +102,32 @@ impl Database {
         };
         // SQLite allows one writer; a small pool avoids "database is locked".
         let connections = if url.starts_with("sqlite:") { 4 } else { 16 };
-        let pool = AnyPoolOptions::new()
-            .max_connections(connections)
-            .connect(&url)
-            .await?;
+        let mut options = AnyPoolOptions::new().max_connections(connections);
+        if url.starts_with("sqlite:") {
+            // Out of the box SQLite journals by deleting a file on every
+            // commit, syncs the disk on each one, and lets a writer lock out
+            // the readers: a write per subscription fetch or per traffic
+            // flush is then held to what the disk can sync, and the
+            // dashboard waits behind it. WAL lets readers and the writer go
+            // on together, and `synchronous = NORMAL` syncs when the log is
+            // folded back instead of on every commit; the file cannot be
+            // corrupted by it, only the last moments before a power cut are
+            // lost. (`journal_mode` is kept in the file; the rest per
+            // connection.)
+            options = options.after_connect(|connection, _| {
+                Box::pin(async move {
+                    for pragma in [
+                        "PRAGMA busy_timeout = 5000",
+                        "PRAGMA journal_mode = WAL",
+                        "PRAGMA synchronous = NORMAL",
+                    ] {
+                        sqlx::query(pragma).execute(&mut *connection).await?;
+                    }
+                    Ok(())
+                })
+            });
+        }
+        let pool = options.connect(&url).await?;
         if url.starts_with("sqlite:") {
             sqlx::migrate!("./migrations/sqlite").run(&pool).await?;
         } else {
@@ -166,6 +188,34 @@ mod tests {
             db.setting("panel.port").await.unwrap().as_deref(),
             Some("2096")
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_sqlite_file_is_journalled_ahead_and_not_synced_on_every_commit() {
+        let dir = std::env::temp_dir().join(format!("z-db-wal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Database::open(&format!("sqlite://{}/panel.db", dir.display()))
+            .await
+            .unwrap();
+        // Every connection of the pool, not only the first.
+        let mut held = Vec::new();
+        for _ in 0..4 {
+            held.push(db.pool().acquire().await.unwrap());
+        }
+        for connection in &mut held {
+            let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+                .fetch_one(&mut **connection)
+                .await
+                .unwrap();
+            let sync: i64 = sqlx::query_scalar("PRAGMA synchronous")
+                .fetch_one(&mut **connection)
+                .await
+                .unwrap();
+            // 1 is NORMAL (2 would be FULL).
+            assert_eq!((mode.as_str(), sync), ("wal", 1));
+        }
+        drop(held);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

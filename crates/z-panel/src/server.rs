@@ -69,6 +69,9 @@ struct Inner {
     takeover_root: std::sync::RwLock<std::path::PathBuf>,
     /// What lightens the load of an overloaded server ([`crate::relief`]).
     relief: Mutex<crate::relief::Relief>,
+    /// When a subscription fetch (by a user, from a device) was last written
+    /// down, so a busy subscription is not a database write per request.
+    fetch_noted: Mutex<HashMap<(i64, String), i64>>,
 }
 
 impl AppState {
@@ -106,6 +109,7 @@ impl AppState {
                 host: std::sync::RwLock::new(crate::takeover::host::from_env()),
                 takeover_root: std::sync::RwLock::new(crate::takeover::root()),
                 relief: Mutex::new(Default::default()),
+                fetch_noted: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -177,6 +181,35 @@ impl AppState {
 
     pub fn host(&self) -> Arc<dyn crate::takeover::host::Host> {
         self.inner.host.read().expect("host lock").clone()
+    }
+
+    /// Whether a fetch of `user`'s subscription from `device` (empty for none)
+    /// is to be written down now: the first one, then one a minute. What is
+    /// kept is only when it was last fetched and by what, which a minute
+    /// either way does not change; what must not wait (a device that is new
+    /// to a user, which a device limit counts) has a key of its own, so it is
+    /// always the first.
+    pub fn fetch_due(&self, user: i64, device: &str, now: i64) -> bool {
+        const EVERY: i64 = 60;
+        let mut noted = self
+            .inner
+            .fetch_noted
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if noted.len() > 100_000 {
+            noted.retain(|_, at| now - *at < EVERY);
+        }
+        match noted.get_mut(&(user, device.to_string())) {
+            Some(at) if now - *at < EVERY => false,
+            Some(at) => {
+                *at = now;
+                true
+            }
+            None => {
+                noted.insert((user, device.to_string()), now);
+                true
+            }
+        }
     }
 
     pub fn relief(&self) -> std::sync::MutexGuard<'_, crate::relief::Relief> {

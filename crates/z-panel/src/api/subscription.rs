@@ -365,6 +365,20 @@ mod tests {
         assert!(shown["url"].as_str().unwrap().ends_with(&path), "{shown}");
     }
 
+    #[tokio::test]
+    async fn a_fetch_is_written_down_once_a_minute_and_a_new_device_at_once() {
+        let panel = panel("/").await;
+        let state = &panel.state;
+        assert!(state.fetch_due(1, "", 1_000), "the first is written");
+        assert!(!state.fetch_due(1, "", 1_030), "not again within a minute");
+        assert!(state.fetch_due(1, "", 1_061), "a minute on, it is");
+        assert!(!state.fetch_due(1, "", 1_100));
+        // Another user, or a device the user did not have, is never held back.
+        assert!(state.fetch_due(2, "", 1_030));
+        assert!(state.fetch_due(1, "phone", 1_030));
+        assert!(!state.fetch_due(1, "phone", 1_031));
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_link_that_only_this_machine_reaches_is_said_to_be_one() {
         let (panel, session, alice) = rig().await;

@@ -584,11 +584,16 @@ pub async fn serve(
                 }
             }
         }
+        let now = z_db::now();
         if let Some(device) = &seen {
-            db.save_device(user.id, device).await?;
+            if state.fetch_due(user.id, &device.hwid, now) {
+                db.save_device(user.id, device).await?;
+            }
         }
-        db.touch_subscription(user.id, &user_agent.chars().take(256).collect::<String>())
-            .await?;
+        if state.fetch_due(user.id, "", now) {
+            db.touch_subscription(user.id, &user_agent.chars().take(256).collect::<String>())
+                .await?;
+        }
     }
 
     let server = server_name(&settings, headers);
