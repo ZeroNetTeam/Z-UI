@@ -133,9 +133,15 @@ fn core_inbound(
 
     let mut out = Map::new();
     out.insert("tag".into(), json!(inbound.tag));
-    if !inbound.listen.is_empty() {
-        out.insert("listen".into(), json!(inbound.listen));
-    }
+    // Empty means every address, as the dashboard says. A `listen` left out
+    // is not that: the core then listens on loopback only, where no client
+    // can reach it.
+    let listen = if inbound.listen.is_empty() {
+        "0.0.0.0"
+    } else {
+        inbound.listen.as_str()
+    };
+    out.insert("listen".into(), json!(listen));
     out.insert("port".into(), json!(inbound.port));
     out.insert("protocol".into(), json!(inbound.protocol));
     out.insert("settings".into(), settings);
@@ -400,7 +406,8 @@ mod tests {
             inbounds[1]["streamSettings"]["tlsSettings"],
             json!({"certificates": [{"certificate": ["CERT PEM"], "key": ["KEY PEM"]}]})
         );
-        assert!(inbounds[0].get("listen").is_none());
+        // No address given is every address, never the core's loopback default.
+        assert_eq!(inbounds[0]["listen"], "0.0.0.0");
         assert_eq!(config["outbounds"][0]["protocol"], "freedom");
         assert_eq!(config["dns"]["servers"], json!(["localhost"]));
     }

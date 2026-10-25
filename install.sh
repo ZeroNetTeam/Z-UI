@@ -492,7 +492,10 @@ check_domain() {
 download() {
   local url="$1" dest="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 --connect-timeout 15 ${PROXY:+--proxy "$PROXY"} -o "$dest" "$url"
+    # The progress meter is for a person at a terminal; in a log it is noise.
+    local quiet=()
+    [ -t 2 ] || quiet=(-sS)
+    curl "${quiet[@]+"${quiet[@]}"}" -fL --retry 3 --connect-timeout 15 ${PROXY:+--proxy "$PROXY"} -o "$dest" "$url"
   else
     wget -q ${PROXY:+-e "https_proxy=$PROXY"} -O "$dest" "$url"
   fi

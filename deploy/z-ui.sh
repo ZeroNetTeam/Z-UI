@@ -221,7 +221,11 @@ cmd_password() {
 }
 
 cmd_update() {
-  zui update check
+  local found
+  found="$(zui update check)" || { printf '%s\n' "$found"; return 1; }
+  printf '%s\n' "$found"
+  # Nothing to ask when this is already the newest.
+  case "$found" in *"is the newest version"*) return 0 ;; esac
   if confirm confirm_update; then
     zui update apply --yes
     restart_panel
@@ -350,6 +354,8 @@ main() {
     cert|domain) cmd_cert "$@" ;;
     password) cmd_password "$@" ;;
     admin) zui admin "$@" ;;
+    health) zui health ;;
+    migrate) zui migrate "$@" ;;
     takeover) cmd_takeover_args "$@" ;;
     backup) zui backup "$@" ;;
     restore) cmd_restore "$@" ;;

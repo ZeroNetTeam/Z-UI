@@ -453,6 +453,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_inbound_with_no_address_listens_on_every_one_and_not_only_on_loopback() {
+        let panel = panel("/").await;
+        let session = panel.set_up("").await;
+        let port = free_port();
+        let mut body = reality(&panel, &session, port).await;
+        body.as_object_mut().unwrap().remove("listen");
+        let made = panel
+            .send("POST", "/api/inbounds", Some(&session), Some(body))
+            .await;
+        assert_eq!(made.status, StatusCode::CREATED, "{}", made.body);
+        // 127.0.0.2 is this machine too, but only a wildcard listener answers
+        // there: one on 127.0.0.1 alone (the core's own default) does not.
+        let mut answered = false;
+        for _ in 0..50 {
+            answered = tokio::net::TcpStream::connect(("127.0.0.2", port))
+                .await
+                .is_ok();
+            if answered {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(
+            answered,
+            "an inbound with no listen address was not reachable"
+        );
+    }
+
+    #[tokio::test]
     async fn an_inbound_starts_the_core_and_its_changes_reach_it() {
         let panel = panel("/").await;
         let session = panel.set_up("").await;
