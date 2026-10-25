@@ -63,7 +63,7 @@ export function CorePage() {
   const stored = core.data?.settings;
   const dirty = useMemo(() => draft !== null && stored !== undefined && canonical(draft) !== canonical(stored), [draft, stored]);
 
-  const check = useMutation({
+  const check = useMutation({ meta: { quiet: true },
     mutationFn: () => post<{ warnings: CoreWarning[] }>("core/validate", { settings: draft }),
     onSuccess: (result) => setOutcome({ kind: "checked", warnings: result.warnings }),
   });

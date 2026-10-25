@@ -15,6 +15,7 @@ import { Field } from "@/components/ui/field";
 import { post, type Admin, type TotpSetup } from "@/lib/api";
 import { useAuth, useAuthChanged } from "@/lib/auth";
 import { can } from "@/lib/permissions";
+import { copyAndTell } from "@/lib/clipboard";
 
 function PasswordCard() {
   const { t } = useTranslation();
@@ -81,7 +82,8 @@ function CopyButton({ text }: { text: string }) {
       variant="outline"
       size="sm"
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => {
+        void copyAndTell(text).then((done) => {
+          if (!done) return;
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         });
@@ -100,7 +102,7 @@ function TotpCard({ admin }: { admin: Admin }) {
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
 
-  const begin = useMutation({
+  const begin = useMutation({ meta: { quiet: true },
     mutationFn: () => post<TotpSetup>("auth/2fa/begin"),
     onSuccess: (data) => {
       setSetup(data);

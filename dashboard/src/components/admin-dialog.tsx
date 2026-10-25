@@ -51,7 +51,7 @@ export function AdminDialog({
     }
   }, [open, admin, firstRole]);
 
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: () => {
       const body = toAdminPayload(form, !admin);
       return admin ? put<AdminRow>(`admins/${admin.id}`, body) : post<AdminRow>("admins", body);

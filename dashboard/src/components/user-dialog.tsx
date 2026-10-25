@@ -11,11 +11,13 @@ import { Field } from "@/components/ui/field";
 import { SelectField } from "@/components/ui/select";
 import { SwitchField } from "@/components/ui/switch";
 import { TextareaField } from "@/components/ui/textarea";
-import { api, post, put, type Connected, type User, type UserTemplate } from "@/lib/api";
+import { api, post, put, type Connected, type User, type UserSubscription, type UserTemplate } from "@/lib/api";
 import { authKey } from "@/lib/auth";
 import { emptyForm, expiryIn, fromUser, toPayload, withTemplate, type UserForm } from "@/lib/user-form";
 import { daysUntil, formatDate, relative, resetStrategies } from "@/lib/users";
 import { cn } from "@/lib/utils";
+import { copyAndTell, copyText } from "@/lib/clipboard";
+import { toast } from "@/lib/toast";
 
 export function useTemplates() {
   return useQuery({ queryKey: ["templates"], queryFn: () => api<UserTemplate[]>("templates") });
@@ -47,7 +49,8 @@ function Copyable({ label, value }: { label: string; value: string }) {
           className="size-7"
           aria-label={label}
           onClick={() => {
-            void navigator.clipboard?.writeText(value).then(() => {
+            void copyAndTell(value).then((done) => {
+              if (!done) return;
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             });
@@ -108,7 +111,7 @@ export function UserDialog({
     set({ expireAt: expiryIn(value) });
   };
 
-  const save = useMutation({
+  const save = useMutation({ meta: { quiet: true },
     mutationFn: async () => {
       const payload = toPayload(form);
       if (user) return put<User>(`users/${user.id}`, payload);
@@ -123,7 +126,30 @@ export function UserDialog({
       }
       return post<User>("users", payload);
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      // The link goes on the clipboard first, while the click that made the
+      // user still counts as the person asking (browsers allow it for a few
+      // seconds, not after the lists have been read again).
+      if (user) {
+        toast(t("toast.userSaved", { name: user.username }));
+      } else if (many) {
+        toast(t("toast.usersCreated", { count: (result as { changed: number }).changed }));
+      } else {
+        const made = result as User;
+        try {
+          const sub = await api<UserSubscription>(`users/${made.id}/subscription`);
+          if (await copyText(sub.url)) {
+            toast(t("toast.userCreatedCopied", { name: made.username }));
+          } else {
+            toast(t("toast.userCreated", { name: made.username }), "info", {
+              label: t("toast.copyLink"),
+              run: () => void copyAndTell(sub.url, t("subscription.link")),
+            });
+          }
+        } catch {
+          toast(t("toast.userCreated", { name: made.username }));
+        }
+      }
       await client.invalidateQueries({ queryKey: ["users"] });
       await client.invalidateQueries({ queryKey: ["groups"] });
       // A reseller's quota counts their users.

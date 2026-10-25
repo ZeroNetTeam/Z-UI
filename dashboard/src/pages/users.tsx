@@ -57,6 +57,7 @@ import { useCan, useMe } from "@/lib/permissions";
 import { GB, statuses } from "@/lib/users";
 import { useOpenFromLink } from "@/lib/open-from-link";
 import { cn } from "@/lib/utils";
+import { copyAndTell } from "@/lib/clipboard";
 
 const PAGE = 25;
 
@@ -514,7 +515,7 @@ function UserActions({
                 <DropdownMenuItem
                   onSelect={() => {
                     void api<UserSubscription>(`users/${user.id}/subscription`).then((sub) =>
-                      navigator.clipboard?.writeText(sub.url),
+                      copyAndTell(sub.url, t("subscription.link")),
                     );
                   }}
                 >

@@ -32,7 +32,7 @@ function GroupDialog({ open, onOpenChange, group }: { open: boolean; onOpenChang
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, group]);
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: () => {
       const body = { name: name.trim(), all_inbounds: all, inbound_ids: all ? [] : inbounds };
       return group ? put(`groups/${group.id}`, body) : post("groups", body);

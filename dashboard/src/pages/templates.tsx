@@ -62,7 +62,7 @@ function TemplateDialog({ open, onOpenChange, template }: { open: boolean; onOpe
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, template]);
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: () => {
       const body = {
         name: form.name.trim(),

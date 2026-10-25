@@ -22,7 +22,7 @@ function PanelForm({ view }: { view: PanelView }) {
   const [path, setPath] = useState(view.stored_base_path);
   const [certificate, setCertificate] = useState(view.stored_certificate_id === null ? "" : String(view.stored_certificate_id));
   const [restarting, setRestarting] = useState(false);
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: () => {
       const payload: PanelInput = { listen, base_path: path, certificate_id: certificate === "" ? null : Number(certificate) };
       return put<PanelView>("panel", payload);

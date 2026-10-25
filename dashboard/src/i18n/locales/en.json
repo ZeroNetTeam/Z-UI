@@ -229,7 +229,8 @@
     "optional": "optional",
     "days_one": "{{count, number}} day",
     "days_other": "{{count, number}} days",
-    "apply": "Apply"
+    "apply": "Apply",
+    "close": "Close"
   },
   "inbounds": {
     "title": "Inbounds",
@@ -560,7 +561,8 @@
     "templateHint": "Your own HTML for browsers; {{data}} becomes the subscription as JSON. Blank for the built-in page.",
     "legacyJsonPath": "3X-UI JSON path",
     "legacyClashPath": "3X-UI Clash path",
-    "legacyPathHint": "Where 3X-UI gave out this format (/json, /clash): the links users already have keep working. Empty for none."
+    "legacyPathHint": "Where 3X-UI gave out this format (/json, /clash): the links users already have keep working. Empty for none.",
+    "link": "Subscription link"
   },
   "devices": {
     "title": "Devices",
@@ -1599,5 +1601,19 @@
     "prepared": "A takeover of {{panel}} was prepared but has not switched yet; it is switched from the server.",
     "bannerBody": "This panel replaced {{panel}} on {{when}}. If something is wrong you can still go back ({{left}}).",
     "open": "Open"
+  },
+  "toast": {
+    "done": "Done",
+    "saved": "Saved",
+    "copied": "Copied",
+    "copiedWhat": "{{what}} copied",
+    "copyFailed": "Could not copy. A page on plain HTTP is refused by some browsers; select the text and copy it yourself.",
+    "tryAgain": "Try again",
+    "copyLink": "Copy link",
+    "userCreated": "User {{name}} created",
+    "userCreatedCopied": "User {{name}} created, and the subscription link is copied",
+    "userSaved": "{{name}} saved",
+    "usersCreated_one": "{{count}} user created",
+    "usersCreated_other": "{{count}} users created"
   }
 }

@@ -21,7 +21,7 @@ function UpdateBody({ view }: { view: UpdateView }) {
   const [check, setCheck] = useState(view.check);
   const [proxy, setProxy] = useState(view.proxy);
   const [restarting, setRestarting] = useState(false);
-  const looked = useMutation({
+  const looked = useMutation({ meta: { quiet: true },
     mutationFn: () => post<UpdateView>("update/check"),
     onSuccess: (next) => client.setQueryData(key, next),
   });
@@ -32,7 +32,7 @@ function UpdateBody({ view }: { view: UpdateView }) {
       goWhenUp(new URL(location.href));
     },
   });
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: () => put<UpdateView>("update", { check, proxy }),
     onSuccess: (next) => client.setQueryData(key, next),
   });

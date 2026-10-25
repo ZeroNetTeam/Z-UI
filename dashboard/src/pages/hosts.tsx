@@ -54,7 +54,7 @@ function HostDialog({
     if (open) setForm(host ? { ...host } : blank(inbounds[0]?.id ?? 0));
   }, [open, host, inbounds]);
   const set = (patch: Partial<HostForm>) => setForm((current) => ({ ...current, ...patch }));
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: () => (host ? put(`hosts/${host.id}`, form) : post("hosts", form)),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["hosts"] });

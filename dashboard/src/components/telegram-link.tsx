@@ -17,7 +17,7 @@ export function TelegramLinkCard() {
   const client = useQueryClient();
   const [code, setCode] = useState<LinkCode | null>(null);
   const info = useQuery({ queryKey: key, queryFn: () => api<TelegramInfo>("auth/telegram"), refetchInterval: code ? 3000 : false });
-  const link = useMutation({ mutationFn: () => post<LinkCode>("auth/telegram/link"), onSuccess: setCode });
+  const link = useMutation({ meta: { quiet: true }, mutationFn: () => post<LinkCode>("auth/telegram/link"), onSuccess: setCode });
   const unlink = useMutation({
     mutationFn: (chat: number) => del(`auth/telegram/${chat}`),
     onSuccess: () => client.invalidateQueries({ queryKey: key }),

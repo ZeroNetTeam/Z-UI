@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type User, type UserSubscription } from "@/lib/api";
+import { copyAndTell } from "@/lib/clipboard";
 
 export function useUserSubscription(user: User | null) {
   return useQuery({
@@ -26,7 +27,8 @@ export function CopyIconButton({ text, label }: { text: string; label: string })
       className="size-8 shrink-0"
       aria-label={label}
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => {
+        void copyAndTell(text).then((done) => {
+          if (!done) return;
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         });

@@ -39,7 +39,7 @@ function LastResult({ status }: { status: ChannelStatus }) {
 function TestButton({ channel, disabled }: { channel: NotifyChannel; disabled: boolean }) {
   const { t } = useTranslation();
   const client = useQueryClient();
-  const test = useMutation({
+  const test = useMutation({ meta: { quiet: true },
     mutationFn: () => post<{ delivered: number; bot: string | null }>("notifications/test", { channel }),
     onSettled: () => void client.invalidateQueries({ queryKey: ["notifications"] }),
   });
@@ -87,7 +87,7 @@ export function NotificationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: () => {
       if (!form || !view) throw new Error("not ready");
       return put<NotifyView>("notifications", toPayload(form, view));

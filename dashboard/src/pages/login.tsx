@@ -20,7 +20,7 @@ export function LoginPage() {
   const [code, setCode] = useState("");
   const [needCode, setNeedCode] = useState(false);
 
-  const login = useMutation({
+  const login = useMutation({ meta: { quiet: true },
     mutationFn: () => post<Admin>("auth/login", { username, password, code: needCode ? code : undefined }),
     onSuccess: async () => {
       await authChanged();

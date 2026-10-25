@@ -1,15 +1,19 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { Layout } from "@/components/layout/layout";
 import { pages } from "@/components/layout/navigation";
+import { Toaster } from "@/components/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { basename } from "@/lib/basename";
 import { ThemeProvider } from "@/lib/theme";
 import { Gate } from "@/components/gate";
 import { RequireAdmin } from "@/components/require-admin";
+import i18n from "@/i18n";
 import { setUnauthorizedHandler } from "@/lib/api";
+import { errorText } from "@/lib/errors";
+import { toast } from "@/lib/toast";
 import { authKey } from "@/lib/auth";
 import { AdminsPage } from "@/pages/admins";
 import { AuditPage } from "@/pages/audit";
@@ -33,8 +37,25 @@ import { UsersPage } from "@/pages/users";
 import { NotFoundPage } from "@/pages/not-found";
 import { PlaceholderPage } from "@/pages/placeholder";
 
+/**
+ * What a mutation says when it ends, so nothing the admin does is silent:
+ * a failure is told in a toast whatever the page also shows, and a success is
+ * told too, in the words the mutation gave (`meta.success`, an i18n key) or
+ * as "Done". `meta.quiet` is for the ones that show their own result.
+ */
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+  mutationCache: new MutationCache({
+    onSuccess: (_data, _variables, _context, mutation) => {
+      if (mutation.meta?.quiet) return;
+      const key = mutation.meta?.success;
+      toast(i18n.t(typeof key === "string" ? key : "toast.done"), "success");
+    },
+    onError: (error, _variables, _context, mutation) => {
+      if (mutation.meta?.quiet) return;
+      toast(errorText(error, i18n.t.bind(i18n), i18n.language), "error");
+    },
+  }),
 });
 
 // A session that ends while the page is open sends it back to sign in.
@@ -92,6 +113,7 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider delayDuration={300}>
           <RouterProvider router={router} />
+          <Toaster />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>

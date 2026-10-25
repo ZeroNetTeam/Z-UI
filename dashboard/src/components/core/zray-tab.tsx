@@ -58,7 +58,7 @@ function PresetDialog({
   const { t } = useTranslation();
   const [form, setForm] = useState<PresetForm>(presetDefaults);
   const set = (patch: Partial<PresetForm>) => setForm((current) => ({ ...current, ...patch }));
-  const propose = useMutation({
+  const propose = useMutation({ meta: { quiet: true },
     mutationFn: () => {
       const options: IranOptions = {
         proxies: lines(form.links),

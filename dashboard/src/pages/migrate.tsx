@@ -79,7 +79,7 @@ function Count({ label, value }: { label: string; value: number }) {
 function Pick({ analysis, onChange }: { analysis: MigrateAnalysis; onChange: (next: MigrateAnalysis) => void }) {
   const { t } = useTranslation();
   const input = useRef<HTMLInputElement>(null);
-  const give = useMutation({
+  const give = useMutation({ meta: { quiet: true },
     mutationFn: (file: File) => upload<MigrateAnalysis>(`migrate/${analysis.id}/xray-config`, file, {}, "PUT"),
     onSuccess: onChange,
   });
@@ -115,7 +115,7 @@ function Upload({ onAnalysed }: { onAnalysed: (analysis: MigrateAnalysis) => voi
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [kind, setKind] = useState("");
-  const send = useMutation({
+  const send = useMutation({ meta: { quiet: true },
     mutationFn: () => {
       if (!file) throw new Error("no file");
       return upload<MigrateAnalysis>(`migrate${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`, file);
@@ -191,7 +191,7 @@ function Preview({
   const [options, setOptions] = useState<MigrateOptions>(defaultOptions);
   const [asking, setAsking] = useState(false);
   const set = (patch: Partial<MigrateOptions>) => setOptions((current) => ({ ...current, ...patch }));
-  const run = useMutation({
+  const run = useMutation({ meta: { quiet: true },
     mutationFn: () => post<MigrateReport>(`migrate/${analysis.id}/apply`, options),
     onSuccess: (report) => {
       setAsking(false);

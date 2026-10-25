@@ -23,7 +23,7 @@ export function InvitePage() {
     queryFn: () => api<InviteView>(`auth/invite/${encodeURIComponent(token)}`),
     retry: false,
   });
-  const set = useMutation({
+  const set = useMutation({ meta: { quiet: true },
     mutationFn: () => post<Admin>(`auth/invite/${encodeURIComponent(token)}`, { password }),
     onSuccess: async () => {
       await authChanged();

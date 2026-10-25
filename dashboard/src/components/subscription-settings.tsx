@@ -23,7 +23,7 @@ export function SubscriptionSettingsCard() {
   useEffect(() => {
     if (stored.data) setForm(stored.data);
   }, [stored.data]);
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: (settings: SubscriptionSettings) => put<SubscriptionSettings>("settings/subscription", settings),
     onSuccess: (saved) => {
       client.setQueryData(["settings", "subscription"], saved);

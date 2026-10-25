@@ -1,6 +1,7 @@
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { copyAndTell } from "@/lib/clipboard";
 
 /** Put `text` on the clipboard and show that it got there. */
 export function CopyButton({ text, label }: { text: string; label: string }) {
@@ -16,7 +17,7 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
       variant="outline"
       size="sm"
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => setCopied(true));
+        void copyAndTell(text).then((done) => done && setCopied(true));
       }}
     >
       {copied ? <CheckIcon /> : <CopyIcon />} {label}

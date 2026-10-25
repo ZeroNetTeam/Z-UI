@@ -35,7 +35,7 @@ export function RoleDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, role]);
 
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: () => {
       const body: RolePayload = { name: name.trim(), permissions: minimal(permissions), own_users_only: own };
       return role ? put(`roles/${role.id}`, body) : post("roles", body);

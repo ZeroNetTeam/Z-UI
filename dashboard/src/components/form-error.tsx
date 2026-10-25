@@ -1,20 +1,12 @@
 import { CircleAlertIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { ApiError } from "@/lib/api";
+import { errorText } from "@/lib/errors";
 
 /** A failed request, in the reader's language. */
 export function FormError({ error }: { error: unknown }) {
   const { t, i18n } = useTranslation();
   if (!error) return null;
-  let text = t("errors.unknown");
-  if (error instanceof ApiError) {
-    const minutes = Math.ceil((error.retryAfter ?? 0) / 60);
-    text = t(`errors.${error.code}`, {
-      defaultValue: error.message,
-      message: error.message,
-      minutes: new Intl.NumberFormat(i18n.language).format(minutes),
-    });
-  }
+  const text = errorText(error, t, i18n.language);
   return (
     <div
       role="alert"

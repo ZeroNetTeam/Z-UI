@@ -149,7 +149,7 @@ export function InboundDialog({
     if (security === "reality" && !form.realityPrivateKey) void withKeys(next).then(setForm);
   };
 
-  const save = useMutation({
+  const save = useMutation({ meta: { success: "toast.saved" },
     mutationFn: async () => {
       let payload: InboundPayload = toPayload(form);
       if (jsonMode) {
@@ -172,7 +172,7 @@ export function InboundDialog({
     },
   });
 
-  const realityCheck = useMutation({
+  const realityCheck = useMutation({ meta: { quiet: true },
     mutationFn: () => api<RealityCheck>(`tools/reality-check?target=${encodeURIComponent(form.realityTarget)}`),
     onSuccess: setCheck,
   });

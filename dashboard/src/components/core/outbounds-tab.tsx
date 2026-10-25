@@ -59,12 +59,12 @@ function OutboundDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, index]);
 
-  const check = useMutation({
+  const check = useMutation({ meta: { quiet: true },
     mutationFn: () => post<{ remark: string; scheme: string }>("core/check-link", { link: form.link }),
     onSuccess: (info) => setChecked(`${info.scheme}${info.remark ? ` · ${info.remark}` : ""}`),
     onError: () => setChecked(null),
   });
-  const warp = useMutation({
+  const warp = useMutation({ meta: { quiet: true },
     mutationFn: () => post<{ link: string }>("core/warp"),
     onSuccess: (account) => {
       setChecked(null);

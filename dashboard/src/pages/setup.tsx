@@ -19,7 +19,7 @@ export function SetupPage() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
-  const setup = useMutation({
+  const setup = useMutation({ meta: { quiet: true },
     mutationFn: () => post<Admin>("setup", { token, username, password }),
     onSuccess: async () => {
       await authChanged();
