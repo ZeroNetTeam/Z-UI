@@ -298,9 +298,54 @@ fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {
         .unwrap_or_default()
 }
 
+/// What the request was addressed to, as seen from outside: what a reverse
+/// proxy says it was asked for (`X-Forwarded-Host`), else `Host`. A forwarded
+/// name that is not one (it ends up in links and configs) is ignored.
+pub fn reached_at(headers: &HeaderMap) -> &str {
+    let forwarded = header_text(headers, "x-forwarded-host")
+        .split(',')
+        .next()
+        .unwrap_or_default()
+        .trim();
+    let sane = !forwarded.is_empty()
+        && forwarded.len() <= 255
+        && forwarded
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._:[]".contains(&b));
+    if sane {
+        forwarded
+    } else {
+        header_text(headers, "host")
+    }
+}
+
+/// `http` or `https`, as the client reached us (a proxy that ends TLS says
+/// so in `X-Forwarded-Proto`).
+pub fn scheme(tls: bool, headers: &HeaderMap) -> &'static str {
+    match header_text(headers, "x-forwarded-proto")
+        .split(',')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "https" => "https",
+        "http" => "http",
+        _ if tls => "https",
+        _ => "http",
+    }
+}
+
+/// `scheme://host[:port]`: the address the client used, to put in front of
+/// the subscription's path.
+pub fn origin(tls: bool, headers: &HeaderMap) -> String {
+    format!("{}://{}", scheme(tls, headers), reached_at(headers))
+}
+
 /// The name the client reached us by, without a port.
 pub fn request_host(headers: &HeaderMap) -> String {
-    let host = header_text(headers, "host");
+    let host = reached_at(headers);
     if let Some(v6) = host.strip_prefix('[') {
         return v6.split(']').next().unwrap_or_default().to_string();
     }
@@ -308,6 +353,80 @@ pub fn request_host(headers: &HeaderMap) -> String {
         .filter(|(_, port)| port.bytes().all(|b| b.is_ascii_digit()))
         .map_or(host, |(name, _)| name)
         .to_string()
+}
+
+/// Whether `name` is this machine talking to itself: nobody else can reach a
+/// server by it.
+pub fn is_loopback(name: &str) -> bool {
+    let name = name.trim().trim_end_matches('.').to_ascii_lowercase();
+    name == "localhost"
+        || name.ends_with(".localhost")
+        || name
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
+}
+
+/// Whether `name` is an address only a local network reaches (loopback, a
+/// private range, link-local).
+pub fn is_local(name: &str) -> bool {
+    if is_loopback(name) {
+        return true;
+    }
+    match name.trim().parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => !is_public_v4(ip),
+        Ok(std::net::IpAddr::V6(ip)) => (ip.segments()[0] & 0xe000) != 0x2000,
+        Err(_) => false,
+    }
+}
+
+fn is_public_v4(ip: std::net::Ipv4Addr) -> bool {
+    let [a, b, ..] = ip.octets();
+    !(ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+        || (a == 100 && (b & 0xc0) == 64)
+        || a >= 240)
+}
+
+/// This server's public address, as far as it can tell without asking
+/// anyone: the source address of its route to the internet, when that is a
+/// public one (behind NAT it is not, and there is no answer).
+pub fn own_public_address() -> Option<String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    // Connecting a UDP socket sends nothing; it only picks the route.
+    socket.connect("1.1.1.1:80").ok()?;
+    match socket.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(ip) if is_public_v4(ip) => Some(ip.to_string()),
+        _ => None,
+    }
+}
+
+/// The address configs point at when an inbound has no host: the one the
+/// admin set, else the name the client reached us by. A client never reaches
+/// a server by `localhost`, so when that is the name (a tunnel, or a reverse
+/// proxy that does not pass `Host` on) this server's own public address is
+/// used if it knows it.
+pub fn server_name(settings: &Settings, headers: &HeaderMap) -> String {
+    server_name_with(settings, headers, own_public_address)
+}
+
+fn server_name_with(
+    settings: &Settings,
+    headers: &HeaderMap,
+    own: impl FnOnce() -> Option<String>,
+) -> String {
+    if !settings.server_address.is_empty() {
+        return settings.server_address.clone();
+    }
+    let name = request_host(headers);
+    if is_loopback(&name) {
+        own().unwrap_or(name)
+    } else {
+        name
+    }
 }
 
 /// The device a client says it is on, if it says.
@@ -472,15 +591,9 @@ pub async fn serve(
             .await?;
     }
 
-    let host = request_host(headers);
-    let server = if settings.server_address.is_empty() {
-        host.clone()
-    } else {
-        settings.server_address.clone()
-    };
+    let server = server_name(&settings, headers);
     let endpoints = user_endpoints(state, &user, &server).await?;
-    let scheme = if state.tls() { "https" } else { "http" };
-    let origin = format!("{scheme}://{}", header_text(headers, "host"));
+    let origin = origin(state.tls(), headers);
     let sub_url = url(&settings, &origin, &user.sub_token);
 
     let (content_type, body) = match format {
@@ -634,5 +747,90 @@ mod tests {
         assert_eq!(request_host(&headers), "sub.example.com");
         headers.insert("host", HeaderValue::from_static("[2001:db8::1]:443"));
         assert_eq!(request_host(&headers), "2001:db8::1");
+    }
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.insert(*name, HeaderValue::from_static(value));
+        }
+        headers
+    }
+
+    #[test]
+    fn a_reverse_proxy_says_what_the_client_asked_for() {
+        let proxied = headers(&[
+            ("host", "127.0.0.1:2053"),
+            ("x-forwarded-host", "panel.example.com, 10.0.0.1"),
+            ("x-forwarded-proto", "https"),
+        ]);
+        assert_eq!(origin(false, &proxied), "https://panel.example.com");
+        assert_eq!(request_host(&proxied), "panel.example.com");
+        // Without the headers it is the address as the panel got it, and TLS
+        // on the panel itself decides the scheme.
+        let direct = headers(&[("host", "203.0.113.7:2053")]);
+        assert_eq!(origin(false, &direct), "http://203.0.113.7:2053");
+        assert_eq!(origin(true, &direct), "https://203.0.113.7:2053");
+        // A forwarded name that is no name never reaches a link.
+        let hostile = headers(&[
+            ("host", "panel.example.com"),
+            ("x-forwarded-host", "evil.example/path?x=1"),
+            ("x-forwarded-proto", "javascript"),
+        ]);
+        assert_eq!(origin(false, &hostile), "http://panel.example.com");
+    }
+
+    #[test]
+    fn configs_never_point_at_localhost_when_the_server_knows_better() {
+        let settings = Settings::default();
+        let tunnel = headers(&[("host", "127.0.0.1:2053")]);
+        // The panel reached through a tunnel or a proxy that drops `Host`:
+        // the server's own public address stands in.
+        assert_eq!(
+            server_name_with(&settings, &tunnel, || Some("203.0.113.7".into())),
+            "203.0.113.7"
+        );
+        // Not knowing it, there is nothing better.
+        assert_eq!(server_name_with(&settings, &tunnel, || None), "127.0.0.1");
+        // A real name is never replaced, nor is an admin's choice.
+        let real = headers(&[("host", "sub.example.com:2096")]);
+        assert_eq!(
+            server_name_with(&settings, &real, || panic!("not asked")),
+            "sub.example.com"
+        );
+        let set = Settings {
+            server_address: "vpn-less.example.net".into(),
+            ..Settings::default()
+        };
+        assert_eq!(
+            server_name_with(&set, &tunnel, || panic!("not asked")),
+            "vpn-less.example.net"
+        );
+    }
+
+    #[test]
+    fn local_addresses_are_told_from_public_ones() {
+        for local in [
+            "localhost",
+            "LOCALHOST.",
+            "app.localhost",
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+        ] {
+            assert!(is_loopback(local) && is_local(local), "{local}");
+        }
+        for local in [
+            "192.168.1.5",
+            "10.1.2.3",
+            "172.16.0.9",
+            "100.64.1.1",
+            "fe80::1",
+        ] {
+            assert!(is_local(local) && !is_loopback(local), "{local}");
+        }
+        for public in ["203.0.114.7", "8.8.8.8", "panel.example.com", "2a01:4f8::1"] {
+            assert!(!is_local(public), "{public}");
+        }
     }
 }

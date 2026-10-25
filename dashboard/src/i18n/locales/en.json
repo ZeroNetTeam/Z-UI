@@ -531,6 +531,7 @@
     "copyLink": "Copy link",
     "qr": "Show QR",
     "urlHint": "Put this link in the user's app; its configs and usage stay up to date on their own.",
+    "localWarning": "This link starts with an address only this computer (or its network) can reach, because the panel was opened that way. It will not work for anyone else. Open the panel by its real address or domain, or set the public address under Settings → Subscription.",
     "configs_one": "Configs ({{count, number}})",
     "configs_other": "Configs ({{count, number}})",
     "noConfigs": "No configs: the user is not active, or its groups give no inbound.",

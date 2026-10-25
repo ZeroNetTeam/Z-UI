@@ -58,21 +58,11 @@ pub struct UserSubscription {
     url: String,
     /// A QR code of `url`, as SVG.
     qr_svg: String,
+    /// `url` is on an address only this machine or its network reaches
+    /// (`localhost`, a private address): it will not work for anyone else
+    /// until a public address is set under the subscription settings.
+    local: bool,
     links: Vec<Link>,
-}
-
-/// The address the dashboard was reached at, which subscription links share
-/// unless a public address is set, and the name in it.
-fn origin(state: &AppState, headers: &HeaderMap) -> (String, String) {
-    let host = headers
-        .get("host")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("localhost");
-    let scheme = if state.tls() { "https" } else { "http" };
-    (
-        format!("{scheme}://{host}"),
-        subscription::request_host(headers),
-    )
 }
 
 /// A user's subscription address and the links in it, as its app would get
@@ -94,16 +84,17 @@ pub async fn user_subscription(
 ) -> ApiResult<Json<UserSubscription>> {
     let user = super::users::visible(&state, &access, id).await?;
     let settings = state.subscription();
-    let (origin, host) = origin(&state, &headers);
-    let server = if settings.server_address.is_empty() {
-        host
-    } else {
-        settings.server_address.clone()
-    };
+    // Links share the address the dashboard was reached at unless a public
+    // address is set.
+    let origin = subscription::origin(state.tls(), &headers);
+    let server = subscription::server_name(&settings, &headers);
     let endpoints = subscription::user_endpoints(&state, &user, &server).await?;
     let url = subscription::url(&settings, &origin, &user.sub_token);
+    let local = settings.public_url.is_empty()
+        && subscription::is_local(&subscription::request_host(&headers));
     Ok(Json(UserSubscription {
         qr_svg: subscription::page::qr(&url),
+        local,
         url,
         links: endpoints
             .iter()
@@ -372,6 +363,51 @@ mod tests {
             .json();
         assert_eq!(shown["links"].as_array().unwrap().len(), 2);
         assert!(shown["url"].as_str().unwrap().ends_with(&path), "{shown}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_link_that_only_this_machine_reaches_is_said_to_be_one() {
+        let (panel, session, alice) = rig().await;
+        let path = format!("/panel/api/users/{}/subscription", alice["id"]);
+        let shown = |host: &'static str, forwarded: &'static [(&'static str, &'static str)]| {
+            let (panel, session, path) = (&panel, session.clone(), path.clone());
+            async move {
+                let mut headers = vec![("cookie", session.as_str()), ("host", host)];
+                headers.extend_from_slice(forwarded);
+                panel.request("GET", &path, &headers, None).await.json()
+            }
+        };
+        // Opened through a tunnel or a proxy that drops `Host`.
+        let tunnel = shown("127.0.0.1:2053", &[]).await;
+        assert_eq!(tunnel["local"], true, "{tunnel}");
+        assert!(tunnel["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("http://127.0.0.1:2053/sub/"));
+        // The same proxy saying what it was asked for.
+        let proxied = shown(
+            "127.0.0.1:2053",
+            &[
+                ("x-forwarded-host", "panel.example.com"),
+                ("x-forwarded-proto", "https"),
+            ],
+        )
+        .await;
+        assert_eq!(proxied["local"], false, "{proxied}");
+        assert!(proxied["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://panel.example.com/sub/"));
+        // A public address of its own settles it, however the panel was opened.
+        let mut settings = panel.state.subscription();
+        settings.public_url = "https://sub.example.com".into();
+        panel.state.set_subscription(settings);
+        let set = shown("127.0.0.1:2053", &[]).await;
+        assert_eq!(set["local"], false, "{set}");
+        assert!(set["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://sub.example.com/sub/"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

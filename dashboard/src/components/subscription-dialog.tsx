@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckIcon, CopyIcon, QrCodeIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, QrCodeIcon, TriangleAlertIcon } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FormError } from "@/components/form-error";
@@ -81,6 +81,12 @@ export function SubscriptionDialog({ user, onOpenChange }: { user: User | null; 
                 <CopyIconButton text={data.url} label={t("subscription.copyUrl")} />
               </div>
               <p className="text-center text-xs text-muted-foreground">{t("subscription.urlHint")}</p>
+              {data.local && (
+                <p role="alert" className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
+                  <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" />
+                  <span>{t("subscription.localWarning")}</span>
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <div className="text-sm font-medium">{t("subscription.configs", { count: data.links.length })}</div>

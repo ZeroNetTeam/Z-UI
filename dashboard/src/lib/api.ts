@@ -370,6 +370,8 @@ export interface SubscriptionSettings {
 export interface UserSubscription {
   url: string;
   qr_svg: string;
+  /** The link is on an address only this machine or its network reaches (`localhost`, a private address). */
+  local: boolean;
   links: { remark: string; link: string }[];
 }
 
