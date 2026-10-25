@@ -40,6 +40,10 @@ pub struct Options {
     pub hosts: bool,
     #[serde(default = "yes")]
     pub templates: bool,
+    /// The old panel's admins, without passwords: each is given a link that
+    /// sets one. Their users stay theirs.
+    #[serde(default = "yes")]
+    pub admins: bool,
     #[serde(default = "yes")]
     pub usage: bool,
     /// The old panel's subscription path, title and so on.
@@ -55,6 +59,11 @@ pub struct Options {
     /// no core of its own: the panel takes it up when it starts.
     #[serde(skip, default = "yes")]
     pub sync_core: bool,
+    /// Users (by the name they have here) that an earlier step of a takeover
+    /// made: they are brought up to date with the old panel instead of left
+    /// out, and their usage is what the old panel counted.
+    #[serde(skip)]
+    pub refresh_usernames: HashSet<String>,
 }
 
 impl Default for Options {
@@ -70,8 +79,11 @@ pub struct Counts {
     pub groups: usize,
     pub templates: usize,
     pub hosts: usize,
+    pub admins: usize,
     pub certificates: usize,
     pub usage_hours: usize,
+    /// Users that were already here and were brought up to date.
+    pub refreshed: usize,
 }
 
 /// What an import did.
@@ -87,6 +99,11 @@ pub struct Report {
     /// are still held by the old panel).
     pub core_applied: bool,
     pub core_error: Option<String>,
+    /// Each inbound's tag in the old panel and the tag it has here (the same
+    /// inbound when it was already here).
+    #[serde(skip)]
+    #[schema(ignore)]
+    pub tag_map: Vec<(String, String)>,
 }
 
 fn skip(
@@ -97,6 +114,38 @@ fn skip(
     detail: impl Into<String>,
 ) {
     warnings.push(Warning::new(scope, name, code, detail));
+}
+
+/// An admin name this panel accepts (3 to 32 letters, digits, `.`, `_`, `-`).
+fn admin_name(name: &str, taken: &HashMap<String, i64>) -> String {
+    let mut clean: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(32)
+        .collect();
+    while clean.len() < 3 {
+        clean.push('_');
+    }
+    if clean == name || !taken.contains_key(&clean) {
+        return clean;
+    }
+    (2..)
+        .map(|n| {
+            let suffix = format!("-{n}");
+            format!(
+                "{}{suffix}",
+                clean.chars().take(32 - suffix.len()).collect::<String>()
+            )
+        })
+        .find(|candidate| !taken.contains_key(candidate))
+        .expect("an unused name")
 }
 
 /// A name that is free: `name`, or with `-2`, `-3`… when asked to rename.
@@ -125,7 +174,7 @@ fn free_name(
 
 /// The certificate store's id for what an inbound presented, adding it to
 /// the store unless the same one is there.
-async fn certificate_id(
+pub(crate) async fn certificate_id(
     state: &AppState,
     cert: &PlannedCertificate,
     label: &str,
@@ -390,6 +439,56 @@ pub async fn apply(state: &AppState, plan: Plan, options: &Options) -> Result<Re
         counts.groups += 1;
     }
 
+    // ---- admins: without passwords, and each user stays its admin's
+    let mut owner_ids: HashMap<i64, i64> = HashMap::new();
+    if options.admins {
+        let mut by_name: HashMap<String, i64> = db
+            .admins()
+            .await?
+            .into_iter()
+            .map(|a| (a.username, a.id))
+            .collect();
+        let reseller = db
+            .roles()
+            .await?
+            .into_iter()
+            .find(|r| r.name == "Reseller")
+            .map(|r| r.id);
+        for planned in &plan.admins {
+            let name = admin_name(&planned.name, &by_name);
+            if let Some(id) = by_name.get(&planned.name).or_else(|| by_name.get(&name)) {
+                // Somebody of that name is here already: its users are theirs.
+                owner_ids.insert(planned.source_id, *id);
+                continue;
+            }
+            let made = db
+                .create_admin_with(
+                    &name,
+                    z_db::NO_PASSWORD,
+                    &z_db::AdminFields {
+                        is_sudo: planned.sudo,
+                        role_id: if planned.sudo { None } else { reseller },
+                        enabled: planned.enabled,
+                        note: format!("from {}", plan.kind.label()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            if name != planned.name {
+                skip(
+                    &mut warnings,
+                    "settings",
+                    &planned.name,
+                    "renamed",
+                    format!("the admin's name became {name}"),
+                );
+            }
+            by_name.insert(name, made.id);
+            owner_ids.insert(planned.source_id, made.id);
+            counts.admins += 1;
+        }
+    }
+
     // ---- users
     let keep_old_links = match (plan.kind.legacy_family(), &plan.legacy_secret) {
         (Some(_), Some(secret)) => match db.legacy_secret(super::legacy::KIND).await? {
@@ -420,7 +519,63 @@ pub async fn apply(state: &AppState, plan: Plan, options: &Options) -> Result<Re
     let mut imported_users = 0usize;
     if options.users {
         let now = z_db::now();
+        let fields_of = |planned: &super::model::PlannedUser, username: String| UserFields {
+            username,
+            status: planned.status.clone(),
+            data_limit: planned.data_limit,
+            expire_at: planned.expire_at,
+            on_hold_duration: planned.on_hold_duration,
+            on_hold_timeout: planned.on_hold_timeout,
+            reset_strategy: planned.reset_strategy.clone(),
+            ip_limit: planned.ip_limit,
+            speed_up: 0,
+            speed_down: 0,
+            note: planned.note.clone(),
+            group_ids: planned
+                .group_names
+                .iter()
+                .filter_map(|g| group_ids.get(g).copied())
+                .collect(),
+            next_plan: planned.next_plan.as_ref().map(|p| NextPlan {
+                data_limit: p.data_limit,
+                expire_days: p.expire_days,
+                carry_over: p.carry_over,
+            }),
+            hwid_limit: planned.hwid_limit,
+        };
+        let mut present: HashMap<String, i64> = HashMap::new();
+        if !options.refresh_usernames.is_empty() {
+            for user in db.all_users().await? {
+                present.insert(user.username, user.id);
+            }
+        }
         for planned in &plan.users {
+            if let (true, Some(id)) = (
+                options.refresh_usernames.contains(&planned.username),
+                present.get(&planned.username).copied(),
+            ) {
+                db.update_user(id, &fields_of(planned, planned.username.clone()))
+                    .await?;
+                db.set_user_imported(
+                    id,
+                    &ImportedUser {
+                        used_traffic: planned.used_traffic,
+                        lifetime_traffic: planned.lifetime_traffic,
+                        created_at: planned.created_at.unwrap_or(now),
+                        last_reset_at: planned.last_reset_at,
+                        online_at: planned.online_at,
+                    },
+                )
+                .await?;
+                if options.usage {
+                    if let Some(hours) = plan.usage.get(&planned.source_id) {
+                        db.replace_usage_hours(id, hours).await?;
+                        counts.usage_hours += hours.len();
+                    }
+                }
+                counts.refreshed += 1;
+                continue;
+            }
             let Some(username) =
                 free_name(&planned.username, &taken_users, options.on_conflict, 64)
             else {
@@ -433,30 +588,7 @@ pub async fn apply(state: &AppState, plan: Plan, options: &Options) -> Result<Re
                 );
                 continue;
             };
-            let fields = UserFields {
-                username: username.clone(),
-                status: planned.status.clone(),
-                data_limit: planned.data_limit,
-                expire_at: planned.expire_at,
-                on_hold_duration: planned.on_hold_duration,
-                on_hold_timeout: planned.on_hold_timeout,
-                reset_strategy: planned.reset_strategy.clone(),
-                ip_limit: planned.ip_limit,
-                speed_up: 0,
-                speed_down: 0,
-                note: planned.note.clone(),
-                group_ids: planned
-                    .group_names
-                    .iter()
-                    .filter_map(|g| group_ids.get(g).copied())
-                    .collect(),
-                next_plan: planned.next_plan.as_ref().map(|p| NextPlan {
-                    data_limit: p.data_limit,
-                    expire_days: p.expire_days,
-                    carry_over: p.carry_over,
-                }),
-                hwid_limit: planned.hwid_limit,
-            };
+            let fields = fields_of(planned, username.clone());
             let uuid = planned
                 .uuid
                 .clone()
@@ -470,8 +602,12 @@ pub async fn apply(state: &AppState, plan: Plan, options: &Options) -> Result<Re
                 .clone()
                 .filter(|t| !taken_tokens.contains(t))
                 .unwrap_or_else(|| hex::encode(rand::random::<[u8; 16]>()));
+            let owner = planned
+                .owner
+                .and_then(|source| owner_ids.get(&source))
+                .copied();
             let made = match db
-                .create_user(&fields, &uuid, &password, &token, None)
+                .create_user(&fields, &uuid, &password, &token, owner)
                 .await
             {
                 Ok(user) => user,
@@ -635,5 +771,10 @@ pub async fn apply(state: &AppState, plan: Plan, options: &Options) -> Result<Re
         backup,
         core_applied,
         core_error,
+        tag_map: plan
+            .inbounds
+            .iter()
+            .filter_map(|p| tag_of.get(&p.tag).map(|t| (p.tag.clone(), t.clone())))
+            .collect(),
     })
 }

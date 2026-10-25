@@ -21,6 +21,7 @@ mod panel_settings;
 mod quota;
 mod server;
 mod subscription;
+mod takeover;
 mod tls;
 mod update;
 
@@ -144,6 +145,7 @@ async fn main() -> anyhow::Result<()> {
     notify::bot::spawn(state.clone());
     backup::spawn(state.clone());
     certs::spawn(state.clone());
+    takeover::spawn(state.clone());
     update::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
@@ -184,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
-    let app = server::router(state);
+    let app = server::router(state.clone());
     match tls {
         Some(acceptor) => tls::serve(listener, acceptor, app, shutdown).await,
         None => axum::serve(
@@ -195,6 +197,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("serving the panel")?,
     }
+    jobs::flush_traffic(&state).await;
     node.stop().await;
     if restarting.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(start_again());

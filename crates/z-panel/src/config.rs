@@ -88,6 +88,11 @@ pub enum Command {
     /// (3X-UI, PasarGuard or Marzban) from its database. Shows what would
     /// come over; `--apply` does it, after a backup of what is here.
     Migrate(MigrateArgs),
+    /// Replace a panel installed on this machine (3X-UI, PasarGuard or
+    /// Marzban) with this one: users and settings move over, the users'
+    /// connections come back within seconds, and a way back stays open.
+    #[command(subcommand)]
+    Takeover(TakeoverCommand),
     /// Ask a running panel whether it answers (for a container's health
     /// check): exits 0 if it does.
     Health,
@@ -115,6 +120,9 @@ pub struct MigrateArgs {
     pub no_hosts: bool,
     #[arg(long)]
     pub no_templates: bool,
+    /// Do not bring the old panel's admins (they come without passwords).
+    #[arg(long)]
+    pub no_admins: bool,
     #[arg(long)]
     pub no_usage: bool,
     /// Leave the old panel's subscription path, title and so on alone.
@@ -128,6 +136,48 @@ pub struct MigrateArgs {
     /// instead of leaving it out.
     #[arg(long)]
     pub rename: bool,
+}
+
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum TakeoverCommand {
+    /// Look for a panel on this machine that can be replaced.
+    Detect,
+    /// Bring a panel's data over while it keeps serving: nothing of it is
+    /// stopped or removed, and the inbounds here stay off.
+    Prepare {
+        /// `3x-ui` or `pasarguard`, when both are here.
+        #[arg(long)]
+        panel: Option<String>,
+    },
+    /// Stop the old panel, bring over what changed meanwhile, start this one
+    /// and check that every port answers. If anything fails the old panel
+    /// starts again. The old panel's files stay for a week.
+    Cutover {
+        /// Do not ask.
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Prepare and cut over in one go (what `install.sh --replace` does).
+    Run {
+        #[arg(long)]
+        panel: Option<String>,
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Where a takeover has got to.
+    Status,
+    /// "I made a mistake": stop this panel, give the old panel what its users
+    /// used meanwhile, and start it. Possible for a week.
+    Rollback {
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Delete the old panel's files now (they are deleted by themselves after
+    /// a week). This ends the way back.
+    DeleteOld {
+        #[arg(short, long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Clone, clap::Subcommand)]
@@ -229,6 +279,18 @@ pub enum AdminCommand {
     },
     /// List the admins.
     List,
+    /// Make a link where an admin sets a password (for admins brought over
+    /// from another panel, who have none yet); good once, for a week.
+    Invite {
+        /// The admin, or leave out and use --pending.
+        username: Option<String>,
+        /// A link for every admin that has no password yet.
+        #[arg(long)]
+        pending: bool,
+        /// The address the link starts with (the server's name or address).
+        #[arg(long, default_value = "localhost")]
+        host: String,
+    },
     /// Set a new password for an admin (a random one is printed if none is
     /// given) and end their sessions.
     ResetPassword {

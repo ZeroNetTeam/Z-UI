@@ -34,6 +34,18 @@ pub struct Admin {
     pub note: String,
 }
 
+/// The hash of an admin who has no password yet (brought over from another
+/// panel, waiting for the link that sets one): it is no Argon2 hash, so it
+/// matches no password.
+pub const NO_PASSWORD: &str = "!";
+
+impl Admin {
+    /// Whether this admin still has to set a password.
+    pub fn pending(&self) -> bool {
+        self.password_hash == NO_PASSWORD
+    }
+}
+
 /// What a sudo admin sets on another admin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminFields {
@@ -257,6 +269,10 @@ impl Database {
             .bind(id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM admin_invites WHERE admin_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM telegram_links WHERE kind = 'admin' AND ref_id = $1")
             .bind(id)
             .execute(&mut *tx)
@@ -268,6 +284,84 @@ impl Database {
             .rows_affected();
         tx.commit().await?;
         Ok(deleted > 0)
+    }
+
+    /// Admins with no password yet.
+    pub async fn pending_admins(&self) -> Result<Vec<Admin>, DbError> {
+        let rows = sqlx::query(concat!(
+            "SELECT ",
+            columns!(),
+            " FROM admins WHERE password_hash = $1 ORDER BY id"
+        ))
+        .bind(NO_PASSWORD)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows.into_iter().map(admin).collect::<Result<_, _>>()?)
+    }
+
+    /// Make a link for `admin_id` that is good until `expires_at`: only the
+    /// hash of its token is kept, and an older link of the same admin stops
+    /// working.
+    pub async fn create_invite(
+        &self,
+        admin_id: i64,
+        token_hash: &str,
+        expires_at: i64,
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool().begin().await?;
+        sqlx::query("DELETE FROM admin_invites WHERE admin_id = $1")
+            .bind(admin_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO admin_invites (token_hash, admin_id, expires_at, created_at) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(token_hash)
+        .bind(admin_id)
+        .bind(expires_at)
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The admin a link is for, if the link is good.
+    pub async fn invite(&self, token_hash: &str) -> Result<Option<Admin>, DbError> {
+        let row = sqlx::query(concat!(
+            "SELECT ",
+            columns!(),
+            " FROM admins WHERE id = (SELECT admin_id FROM admin_invites WHERE token_hash = $1 AND expires_at > $2)"
+        ))
+        .bind(token_hash)
+        .bind(now())
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(row.map(admin).transpose()?)
+    }
+
+    /// Use a link up: the admin it was for, if it was good, and it is good no more.
+    pub async fn consume_invite(&self, token_hash: &str) -> Result<Option<Admin>, DbError> {
+        let Some(admin) = self.invite(token_hash).await? else {
+            return Ok(None);
+        };
+        let used = sqlx::query("DELETE FROM admin_invites WHERE token_hash = $1")
+            .bind(token_hash)
+            .execute(self.pool())
+            .await?
+            .rows_affected();
+        Ok((used > 0).then_some(admin))
+    }
+
+    /// Forget links that have run out.
+    pub async fn prune_invites(&self) -> Result<u64, DbError> {
+        Ok(
+            sqlx::query("DELETE FROM admin_invites WHERE expires_at <= $1")
+                .bind(now())
+                .execute(self.pool())
+                .await?
+                .rows_affected(),
+        )
     }
 
     /// Enabled sudo admins, of whom at least one must always remain.
@@ -402,6 +496,42 @@ mod tests {
         std::collections::hash_map::RandomState::new()
             .build_hasher()
             .finish() as i64
+    }
+
+    #[tokio::test]
+    async fn an_admin_without_a_password_gets_one_through_a_link_used_once_in_time() {
+        let (db, dir) = fresh().await;
+        let admin = db.create_admin("ali", NO_PASSWORD, false).await.unwrap();
+        assert!(admin.pending());
+        assert_eq!(db.pending_admins().await.unwrap().len(), 1);
+
+        let future = crate::now() + 3600;
+        db.create_invite(admin.id, "hash-a", future).await.unwrap();
+        assert_eq!(db.invite("hash-a").await.unwrap().unwrap().username, "ali");
+        assert!(db.invite("hash-b").await.unwrap().is_none());
+        // A newer link replaces the older.
+        db.create_invite(admin.id, "hash-b", future).await.unwrap();
+        assert!(db.invite("hash-a").await.unwrap().is_none());
+        // Used once.
+        assert!(db.consume_invite("hash-b").await.unwrap().is_some());
+        assert!(db.consume_invite("hash-b").await.unwrap().is_none());
+
+        // Run out.
+        db.create_invite(admin.id, "hash-c", crate::now() - 1)
+            .await
+            .unwrap();
+        assert!(db.invite("hash-c").await.unwrap().is_none());
+        assert!(db.consume_invite("hash-c").await.unwrap().is_none());
+        assert_eq!(db.prune_invites().await.unwrap(), 1);
+
+        // With a password the admin is no longer waiting, and a deleted admin takes its links along.
+        db.set_admin_password(admin.id, "hash-2").await.unwrap();
+        assert!(db.pending_admins().await.unwrap().is_empty());
+        let other = db.create_admin("bob", NO_PASSWORD, false).await.unwrap();
+        db.create_invite(other.id, "hash-d", future).await.unwrap();
+        db.delete_admin(other.id, admin.id).await.unwrap();
+        assert!(db.invite("hash-d").await.unwrap().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]

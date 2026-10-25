@@ -16,8 +16,8 @@ use z_db::{DbError, Record, Source};
 
 use super::common;
 use super::model::{
-    Kind, Plan, PlannedGroup, PlannedHost, PlannedInbound, PlannedPlan, PlannedTemplate,
-    PlannedUser,
+    Kind, Plan, PlannedAdmin, PlannedGroup, PlannedHost, PlannedInbound, PlannedPlan,
+    PlannedTemplate, PlannedUser,
 };
 
 /// The protocols this panel builds that these have.
@@ -409,6 +409,7 @@ fn user_of(row: &Record, names: &mut HashSet<String>, plan: &mut Plan) -> Option
         lifetime_traffic: used,
         expire_at: row.time("expire").filter(|t| *t > 0),
         on_hold_duration,
+        owner: row.int("admin_id").filter(|id| *id > 0),
         on_hold_timeout: row.time("on_hold_timeout").filter(|t| *t > 0),
         reset_strategy: row
             .filled("data_limit_reset_strategy")
@@ -458,6 +459,53 @@ fn credentials(
             .iter()
             .any(|p| has(p) && password_of(p).is_some() && password_of(p) != password);
     (uuid, password, lost)
+}
+
+/// The admins of PasarGuard or Marzban: sudo or owner there is sudo here, the
+/// rest are resellers of their own users. There is always one sudo.
+async fn read_admins(
+    plan: &mut Plan,
+    source: &Source,
+    tables: &HashSet<String>,
+) -> Result<(), DbError> {
+    if !tables.contains("admins") {
+        return Ok(());
+    }
+    let mut owner_roles: HashSet<i64> = HashSet::new();
+    if tables.contains("admin_roles") {
+        for row in source.rows("admin_roles").await? {
+            if let (Some(id), true) = (row.int("id"), row.flag("is_owner").unwrap_or(false)) {
+                owner_roles.insert(id);
+            }
+        }
+    }
+    for row in source.rows("admins").await? {
+        let (Some(id), Some(name)) = (row.int("id"), row.filled("username")) else {
+            continue;
+        };
+        let sudo = row.flag("is_sudo").unwrap_or(false)
+            || row.int("role_id").is_some_and(|r| owner_roles.contains(&r));
+        let disabled = row
+            .filled("status")
+            .is_some_and(|s| s.eq_ignore_ascii_case("disabled"));
+        plan.admins.push(PlannedAdmin {
+            source_id: id,
+            name: name.to_string(),
+            sudo,
+            enabled: !disabled,
+        });
+    }
+    if !plan.admins.is_empty() && !plan.admins.iter().any(|a| a.sudo) {
+        plan.admins[0].sudo = true;
+        let name = plan.admins[0].name.clone();
+        plan.warn(
+            "settings",
+            name,
+            "no_sudo_admin",
+            "none of its admins was an owner, so the first became a sudo admin here",
+        );
+    }
+    Ok(())
 }
 
 pub async fn read_pasarguard(source: &Source) -> Result<Plan, DbError> {
@@ -589,6 +637,7 @@ pub async fn read_pasarguard(source: &Source) -> Result<Plan, DbError> {
     }
     apply_flow(&mut plan, &flows);
     apply_methods(&mut plan, &methods);
+    read_admins(&mut plan, source, &tables).await?;
 
     // ---- templates
     let mut template_groups: HashMap<i64, Vec<String>> = HashMap::new();
@@ -796,6 +845,7 @@ pub async fn read_marzban(source: &Source, xray_config: Option<&Value>) -> Resul
     }
     apply_flow(&mut plan, &flows);
     apply_methods(&mut plan, &methods);
+    read_admins(&mut plan, source, &tables).await?;
 
     // ---- templates: the inbounds they gave become groups of their own kind
     if tables.contains("user_templates") {

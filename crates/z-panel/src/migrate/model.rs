@@ -146,6 +146,8 @@ pub struct PlannedUser {
     pub created_at: Option<i64>,
     /// Before this time a link of the old panel no longer counts for it.
     pub valid_after: i64,
+    /// The admin it belonged to there (by the id it had).
+    pub owner: Option<i64>,
     /// By name, as the plan's groups.
     pub group_names: Vec<String>,
     pub next_plan: Option<PlannedPlan>,
@@ -179,6 +181,18 @@ pub struct PlannedHost {
     pub priority: i64,
 }
 
+/// An admin of the old panel. Its password cannot be carried, so it comes
+/// over without one and is given a link that sets one.
+#[derive(Debug, Clone, Default)]
+pub struct PlannedAdmin {
+    /// The id it had there, which its users name.
+    pub source_id: i64,
+    pub name: String,
+    /// Owner or sudo there.
+    pub sudo: bool,
+    pub enabled: bool,
+}
+
 /// Subscription options the old panel had, and the paths its links used.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PlannedSubscription {
@@ -207,6 +221,8 @@ pub struct Plan {
     /// The key the old panel signed its subscription links with.
     pub legacy_secret: Option<String>,
     pub warnings: Vec<Warning>,
+    /// The panel's admins, and by their ids which user is whose.
+    pub admins: Vec<PlannedAdmin>,
 }
 
 impl Plan {
@@ -222,6 +238,7 @@ impl Plan {
             subscription: None,
             legacy_secret: None,
             warnings: Vec::new(),
+            admins: Vec::new(),
         }
     }
 
@@ -244,6 +261,7 @@ pub struct Summary {
     pub groups: usize,
     pub templates: usize,
     pub hosts: usize,
+    pub admins: usize,
     /// How many hours of usage there are.
     pub usage_hours: usize,
     /// Whether the old panel's subscription links will keep working, and how.
@@ -272,6 +290,7 @@ impl Plan {
             groups: self.groups.len(),
             templates: self.templates.len(),
             hosts: self.hosts.len(),
+            admins: self.admins.len(),
             usage_hours: self.usage.values().map(Vec::len).sum(),
             links: if self.legacy_secret.is_some() {
                 LinkSupport::Signed

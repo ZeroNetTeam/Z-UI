@@ -17,8 +17,9 @@ mod notify;
 mod roles;
 mod source;
 mod users;
+mod writeback;
 
-pub use admins::{plan_peak, Admin, AdminFields, Holdings};
+pub use admins::{plan_peak, Admin, AdminFields, Holdings, NO_PASSWORD};
 pub use api_keys::ApiKey;
 pub use audit::{AuditEntry, AuditQuery, NewAudit};
 pub use backup::{ExportReport, ImportReport, BACKUP_FORMAT};
@@ -32,6 +33,7 @@ pub use users::{
     AccessGroup, Device, DeviceFields, NextPlan, TrafficDelta, UsagePoint, User, UserFields,
     UserQuery, UserTemplate, UserUsage,
 };
+pub use writeback::{add_usage, Counters};
 
 use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{AnyPool, Row};

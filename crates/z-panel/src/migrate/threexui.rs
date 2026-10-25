@@ -559,6 +559,20 @@ pub async fn read(source: &Source) -> Result<Plan, DbError> {
         }
     }
 
+    // ---- its one admin
+    if tables.contains("users") {
+        for row in source.rows("users").await? {
+            if let (Some(id), Some(name)) = (row.int("id"), row.filled("username")) {
+                plan.admins.push(super::model::PlannedAdmin {
+                    source_id: id,
+                    name: name.to_string(),
+                    sudo: true,
+                    enabled: true,
+                });
+            }
+        }
+    }
+
     // ---- subscription options
     if tables.contains("settings") {
         let mut options: HashMap<String, String> = HashMap::new();

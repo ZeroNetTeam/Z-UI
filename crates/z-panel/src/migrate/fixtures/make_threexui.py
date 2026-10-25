@@ -122,7 +122,7 @@ traffic = [  # email, inbound, enable, up, down, expiry, total, reset, last_onli
 ]
 settings = {"subPath": "/sub/", "subJsonPath": "/json/", "subClashPath": "/clash/", "subTitle": "My VPN",
             "subUpdates": "6", "subSupportUrl": "https://t.me/support", "subJsonEnable": "true", "subClashEnable": "false",
-            "webPort": "2053", "subPort": "2096"}
+            "webPort": "2053", "subPort": "2097"}
 
 
 def classic():

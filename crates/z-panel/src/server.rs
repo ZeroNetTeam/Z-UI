@@ -63,6 +63,10 @@ struct Inner {
     link_codes: Mutex<HashMap<String, (i64, Instant)>>,
     /// Held while another panel's data is imported: one import at a time.
     import_lock: tokio::sync::Mutex<()>,
+    /// What a takeover asks of the machine (the services, the ports).
+    host: std::sync::RwLock<Arc<dyn crate::takeover::host::Host>>,
+    /// Where the machine's files are, for a takeover (`/` but in tests).
+    takeover_root: std::sync::RwLock<std::path::PathBuf>,
 }
 
 impl AppState {
@@ -97,6 +101,8 @@ impl AppState {
                 notifier: crate::notify::Notifier::new(),
                 link_codes: Mutex::new(HashMap::new()),
                 import_lock: tokio::sync::Mutex::new(()),
+                host: std::sync::RwLock::new(crate::takeover::host::from_env()),
+                takeover_root: std::sync::RwLock::new(crate::takeover::root()),
             }),
         }
     }
@@ -164,6 +170,20 @@ impl AppState {
     /// Resolves once a restart was asked for.
     pub async fn restart_requested(&self) {
         self.inner.restart.notified().await;
+    }
+
+    pub fn host(&self) -> Arc<dyn crate::takeover::host::Host> {
+        self.inner.host.read().expect("host lock").clone()
+    }
+
+    pub fn takeover_root(&self) -> std::path::PathBuf {
+        self.inner.takeover_root.read().expect("root lock").clone()
+    }
+
+    #[cfg(test)]
+    pub fn set_host(&self, host: Arc<dyn crate::takeover::host::Host>, root: std::path::PathBuf) {
+        *self.inner.host.write().expect("host lock") = host;
+        *self.inner.takeover_root.write().expect("root lock") = root;
     }
 
     pub fn import_lock(&self) -> &tokio::sync::Mutex<()> {

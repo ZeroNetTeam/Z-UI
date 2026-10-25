@@ -63,7 +63,7 @@ xray = {
 }
 
 users = [  # id, name, status, used, limit, expire(seconds), strategy, created, extra
-    (1, "zed", "active", 5 * GIB, 20 * GIB, 1830000000, "month", "2026-01-12 10:00:00.000000", dict(note="main", online_at="2026-10-22 18:00:00.000000")),
+    (1, "zed", "active", 5 * GIB, 20 * GIB, 1830000000, "month", "2026-01-12 10:00:00.000000", dict(note="main", online_at="2026-10-22 18:00:00.000000", admin_id=2)),
     (2, "yan", "on_hold", 0, 0, None, "no_reset", "2026-09-01 08:00:00.000000", dict(on_hold_expire_duration=604800, on_hold_timeout="2026-12-31 00:00:00.000000")),
     (3, "xia", "limited", int(2.5 * GIB), 2 * GIB, None, "no_reset", "2026-03-03 03:03:03.000000", dict()),
     (4, "wei", "disabled", 0, 0, None, "no_reset", "2026-05-05 05:05:05.000000", dict(sub_revoked_at="2026-07-01 00:00:00.000000")),
@@ -106,6 +106,8 @@ sql = ["BEGIN TRANSACTION;",
        "CREATE TABLE next_plans (id INTEGER NOT NULL, user_id INTEGER, data_limit BIGINT NOT NULL, expire INTEGER, "
        "add_remaining_traffic BOOLEAN NOT NULL DEFAULT 0, fire_on_either BOOLEAN NOT NULL DEFAULT 1, PRIMARY KEY (id), FOREIGN KEY(user_id) REFERENCES users (id));",
        insert("jwt", id=1, secret_key=SECRET)]
+sql.append(insert("admins", id=1, username="root", hashed_password="$2b$12$notarealhash", created_at="2026-01-01 00:00:00.000000", is_sudo=True))
+sql.append(insert("admins", id=2, username="shop", hashed_password="$2b$12$notarealhash", created_at="2026-02-01 00:00:00.000000", is_sudo=False))
 for n, tag in enumerate(["VLESS TCP REALITY", "VMess WS", "Trojan TCP", "Shadowsocks TCP"], 1):
     sql.append(insert("inbounds", id=n, tag=tag))
 for id_, name, status, used, limit, expire, strategy, created, extra in users:

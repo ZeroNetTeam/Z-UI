@@ -81,6 +81,15 @@ pub enum Event {
         version: String,
         url: String,
     },
+    /// The week the old panel's files are kept is nearly over.
+    TakeoverExpiring {
+        hours: i64,
+    },
+    /// The week is over: the old panel's files were deleted, or (with the
+    /// reason) could not be.
+    TakeoverCleaned {
+        kept: Option<String>,
+    },
 }
 
 /// A message, before it is dressed for a channel: a title and some
@@ -120,6 +129,8 @@ impl Event {
             Event::CertificateFailed { .. } => "certificate.failed",
             Event::CertificateExpiring { .. } => "certificate.expiring",
             Event::UpdateAvailable { .. } => "update.available",
+            Event::TakeoverExpiring { .. } => "takeover.expiring",
+            Event::TakeoverCleaned { .. } => "takeover.cleaned",
         }
     }
 
@@ -139,6 +150,8 @@ impl Event {
             | Event::CertificateFailed { .. }
             | Event::CertificateExpiring { .. } => events.certificate,
             Event::UpdateAvailable { .. } => events.update,
+            // Rare, and about something that cannot be undone: always told.
+            Event::TakeoverExpiring { .. } | Event::TakeoverCleaned { .. } => true,
         }
     }
 
@@ -218,6 +231,10 @@ impl Event {
             Event::CertificateFailed { name, error } => json!({"name": name, "error": error}),
             Event::CertificateExpiring { name, days } => json!({"name": name, "days": days}),
             Event::UpdateAvailable { version, url } => json!({"version": version, "url": url}),
+            Event::TakeoverExpiring { hours } => json!({"hours": hours}),
+            Event::TakeoverCleaned { kept } => {
+                json!({"deleted": kept.is_none(), "kept_because": kept})
+            }
         }
     }
 
@@ -399,6 +416,43 @@ impl Event {
                     field("یادداشت‌ها", "Notes", url.clone()),
                 ],
             },
+            Event::TakeoverExpiring { hours } => Message {
+                title: pick(
+                    "⏳ فایل‌های پنل قبلی به‌زودی پاک می‌شوند",
+                    "⏳ The old panel's files are about to be deleted",
+                ),
+                fields: vec![
+                    field("زمان مانده", "Time left", pick(&format!("حدود {hours} ساعت"), &format!("about {hours} hours"))),
+                    field(
+                        "نکته",
+                        "Note",
+                        pick(
+                            "تا آن زمان «غلط کردم» پنل قبلی را برمی‌گرداند؛ بعدش راه برگشتی نیست",
+                            "until then \"I made a mistake\" brings the old panel back; after that there is no way back",
+                        ),
+                    ),
+                ],
+            },
+            Event::TakeoverCleaned { kept } => match kept {
+                None => Message {
+                    title: pick(
+                        "🧹 فایل‌های پنل قبلی پاک شد",
+                        "🧹 The old panel's files were deleted",
+                    ),
+                    fields: vec![field(
+                        "نکته",
+                        "Note",
+                        pick("دیگر راه برگشتی نیست", "there is no way back now"),
+                    )],
+                },
+                Some(why) => Message {
+                    title: pick(
+                        "⚠️ فایل‌های پنل قبلی پاک نشد",
+                        "⚠️ The old panel's files were not deleted",
+                    ),
+                    fields: vec![field("دلیل", "Why", why.clone())],
+                },
+            },
         }
     }
 
@@ -579,6 +633,8 @@ mod tests {
                 version: "0.2.0".into(),
                 url: "https://example.com/release".into(),
             },
+            Event::TakeoverExpiring { hours: 20 },
+            Event::TakeoverCleaned { kept: None },
         ];
         let mut kinds: Vec<&str> = events.iter().map(Event::kind).collect();
         kinds.sort_unstable();

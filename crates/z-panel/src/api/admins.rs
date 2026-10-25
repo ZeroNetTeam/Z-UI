@@ -23,6 +23,9 @@ pub struct AdminRow {
     role_id: Option<i64>,
     role: Option<String>,
     totp_enabled: bool,
+    /// Brought over from another panel and still waiting for the link that
+    /// sets a password.
+    pending: bool,
     last_login_at: Option<i64>,
     created_at: i64,
     user_limit: i64,
@@ -45,6 +48,7 @@ fn row(
     keys: i64,
 ) -> AdminRow {
     AdminRow {
+        pending: admin.pending(),
         role: admin.role_id.and_then(|id| roles.get(&id).cloned()),
         id: admin.id,
         username: admin.username,

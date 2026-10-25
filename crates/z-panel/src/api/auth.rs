@@ -200,6 +200,105 @@ pub async fn setup(
     signed_in(&state, &parts, &admin, "auth.setup").await
 }
 
+/// Who a set-password link is for.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct InviteView {
+    username: String,
+}
+
+/// The admin a link is for, or why it is not good (told the same for a token
+/// nobody made, one that ran out and one already used).
+async fn invited(
+    state: &AppState,
+    parts: &Parts,
+    token: &str,
+    consume: bool,
+) -> ApiResult<z_db::Admin> {
+    let address = client_address(parts);
+    if state
+        .key_limiter()
+        .locked(address, "invite", Instant::now())
+        .is_some()
+    {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_attempts",
+            "too many wrong links; wait and try again",
+        ));
+    }
+    let hash = crate::auth::invite::hash(token);
+    let found = if consume {
+        state.db().consume_invite(&hash).await?
+    } else {
+        state.db().invite(&hash).await?
+    };
+    found.filter(|admin| admin.enabled).ok_or_else(|| {
+        state
+            .key_limiter()
+            .failed(address, "invite", Instant::now());
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            "invalid_invite",
+            "this link is wrong, has been used, or has run out",
+        )
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/auth/invite/{token}",
+    operation_id = "auth_invite",
+    tag = "auth",
+    summary = "Whose link this is",
+    description = "A link that lets an admin brought over from another panel set a password. Good once, for a week.",
+    params(("token" = String, Path, description = "the token in the link")),
+    responses((status = 200, description = "The admin the link is for", body = InviteView), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+    security(()),
+)]
+pub async fn invite(
+    State(state): State<AppState>,
+    parts: Parts,
+    axum::extract::Path(token): axum::extract::Path<String>,
+) -> ApiResult<Json<InviteView>> {
+    let admin = invited(&state, &parts, &token, false).await?;
+    Ok(Json(InviteView {
+        username: admin.username,
+    }))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct InviteRequest {
+    password: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/auth/invite/{token}",
+    operation_id = "auth_invite_accept",
+    tag = "auth",
+    summary = "Set a password through a link",
+    params(("token" = String, Path, description = "the token in the link")),
+    request_body = InviteRequest,
+    responses((status = 200, description = "The password is set and the admin is signed in", body = Me), (status = "default", description = "Failed: `error` is a stable code, `message` is for people", body = ErrorBody)),
+    security(()),
+)]
+pub async fn accept_invite(
+    State(state): State<AppState>,
+    parts: Parts,
+    axum::extract::Path(token): axum::extract::Path<String>,
+    Json(request): Json<InviteRequest>,
+) -> ApiResult<Response> {
+    // A weak password is told before the link is used up.
+    password::check_strength(&request.password)?;
+    let admin = invited(&state, &parts, &token, true).await?;
+    let hash = password::hash(&request.password).await?;
+    state.db().set_admin_password(admin.id, &hash).await?;
+    tracing::info!(username = %admin.username, "an admin set a password through a link");
+    state.db().touch_admin_login(admin.id).await?;
+    let admin = refreshed(&state, admin.id).await?;
+    signed_in(&state, &parts, &admin, "auth.invite").await
+}
+
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct LoginRequest {
     username: String,

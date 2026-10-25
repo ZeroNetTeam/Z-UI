@@ -22,6 +22,7 @@ mod panel;
 mod phase9_tests;
 mod roles;
 mod subscription;
+mod takeover;
 mod tools;
 mod update;
 pub(crate) mod users;
@@ -82,6 +83,7 @@ pub const LOG_LEVEL_SETTING: &str = "log.level";
         (name = "panel", description = "The panel itself"),
         (name = "update", description = "Newer versions of the panel (sudo only)"),
         (name = "migrate", description = "Moving here from 3X-UI, PasarGuard or Marzban (sudo only)"),
+        (name = "takeover", description = "Replacing another panel on this machine, and going back (sudo only)"),
     ),
 )]
 struct ApiDoc;
@@ -125,6 +127,8 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         .routes(routes!(auth::state))
         .routes(routes!(auth::setup))
         .routes(routes!(auth::login))
+        .routes(routes!(auth::invite))
+        .routes(routes!(auth::accept_invite))
         .routes(routes!(auth::logout));
 
     // Anyone signed in: their own account, and tools that touch nothing.
@@ -226,7 +230,10 @@ fn groups() -> Vec<(Option<Need>, OpenApiRouter<AppState>)> {
         .routes(routes!(panel::restart))
         .routes(routes!(update::get, update::settings))
         .routes(routes!(update::check))
-        .routes(routes!(update::apply));
+        .routes(routes!(update::apply))
+        .routes(routes!(takeover::get))
+        .routes(routes!(takeover::rollback))
+        .routes(routes!(takeover::delete_old));
     // A backup is a file: the upload may be large, which the other routes may not.
     let restore = router()
         .routes(routes!(backups::restore))

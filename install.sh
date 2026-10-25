@@ -85,6 +85,18 @@ EN[uninstall_confirm]="Remove Z-UI from this server?"
 EN[uninstall_data]="Also delete the data (users, certificates, backups)?"
 EN[uninstalled]="Z-UI was removed."
 EN[kept_data]="The data is kept in %s"
+EN[replace_found]="A panel is installed here: %s."
+EN[replace_ask]="Replace it with Z-UI? Its users, inbounds and settings move over, users' apps reconnect by themselves within seconds, and its files stay for a week so you can go back."
+EN[replace_unsupported]="Replacing works only for 3X-UI and PasarGuard installed with their own installers (PasarGuard with its SQLite database). %s is not one of those. Install Z-UI on its own and use its Migration page, or run again without --replace."
+EN[replace_nothing]="--replace was given, but no 3X-UI or PasarGuard installed with its own installer was found here."
+EN[replace_many]="More than one panel is here (%s): say which to replace with --panel NAME."
+EN[replace_prepare]="Bringing the old panel's data over; it keeps serving meanwhile."
+EN[replace_switch]="Switching: the old panel stops and Z-UI takes over. Its users are cut off for a few seconds and their apps reconnect by themselves."
+EN[replace_failed]="The takeover did not complete. If the old panel was stopped it was started again; see the messages above. Nothing of it was removed."
+EN[replace_done]="Z-UI has taken over from %s"
+EN[replace_invites]="These admins came with the old panel and have no password yet; each sets one at their link (good once, for a week):"
+EN[replace_made]="The old panel had no admin to bring, so one was made:"
+EN[replace_week]="The old panel's files stay where they are, stopped, for a week. If anything is wrong, go back within the week: z-ui takeover rollback (or the 'I made a mistake' button in the panel; what users used meanwhile goes back to the old panel). Delete its files yourself with: z-ui takeover delete-old"
 EN[unknown_option]="Unknown option: %s (see --help)"
 EN[help]="Usage: install.sh [options]
 
@@ -108,6 +120,9 @@ EN[help]="Usage: install.sh [options]
       --proxy URL         proxy for downloads (http://, socks5://)
       --mirror URL        use this address in place of GitHub's releases
       --binary FILE       install this program, do not download
+      --replace           replace the 3X-UI or PasarGuard installed here: its users, inbounds
+                          and settings move over, its files stay a week, and you can go back
+      --panel NAME        which one, when both are here (3x-ui | pasarguard)
       --uninstall         remove Z-UI (--purge: and its data)
   -h, --help"
 
@@ -164,6 +179,18 @@ FA[uninstall_confirm]="Z-UI از این سرور حذف شود؟"
 FA[uninstall_data]="داده (کاربران، گواهی‌ها، بکاپ‌ها) هم پاک شود؟"
 FA[uninstalled]="Z-UI حذف شد."
 FA[kept_data]="داده در %s نگه داشته شد"
+FA[replace_found]="یک پنل اینجا نصب است: %s."
+FA[replace_ask]="جایش Z-UI بیاید؟ کاربران، ورودی‌ها و تنظیماتش منتقل می‌شود، برنامه‌ی کاربران خودش ظرف چند ثانیه دوباره وصل می‌شود و فایل‌هایش یک هفته می‌ماند تا بتوانید برگردید."
+FA[replace_unsupported]="جایگزینی فقط برای 3X-UI و PasarGuard است که با نصب‌کننده‌ی خودشان نصب شده باشند (PasarGuard با دیتابیس SQLite). %s از آن‌ها نیست. Z-UI را جدا نصب کنید و از صفحه‌ی «انتقال از پنل دیگر» استفاده کنید، یا بدون --replace دوباره اجرا کنید."
+FA[replace_nothing]="--replace داده شد ولی 3X-UI یا PasarGuard نصب‌شده با نصب‌کننده‌ی خودش اینجا پیدا نشد."
+FA[replace_many]="بیش از یک پنل اینجاست (%s): با --panel NAME بگویید کدام جایگزین شود."
+FA[replace_prepare]="داده‌ی پنل قدیمی منتقل می‌شود؛ تا آن موقع همچنان سرویس می‌دهد."
+FA[replace_switch]="در حال سوییچ: پنل قدیمی متوقف می‌شود و Z-UI جایش می‌آید. کاربران چند ثانیه قطع می‌شوند و برنامه‌شان خودش دوباره وصل می‌شود."
+FA[replace_failed]="جایگزینی کامل نشد. اگر پنل قدیمی متوقف شده بود دوباره روشن شد؛ پیام‌های بالا را ببینید. چیزی از آن پاک نشد."
+FA[replace_done]="Z-UI جای %s را گرفت"
+FA[replace_invites]="این ادمین‌ها از پنل قدیمی آمده‌اند و هنوز رمز ندارند؛ هرکدام از لینک خودش رمز می‌گذارد (یک بار، تا یک هفته):"
+FA[replace_made]="پنل قدیمی ادمینی برای آوردن نداشت، پس یکی ساخته شد:"
+FA[replace_week]="فایل‌های پنل قدیمی یک هفته همان‌جا، متوقف، می‌ماند. اگر چیزی ایراد داشت تا یک هفته برگردید: z-ui takeover rollback (یا «غلط کردم» در پنل؛ آنچه کاربران در این مدت مصرف کرده‌اند به پنل قدیمی برمی‌گردد). فایل‌هایش را خودتان پاک کنید با: z-ui takeover delete-old"
 FA[unknown_option]="گزینه‌ی ناشناخته: %s (--help را ببینید)"
 FA[help]="روش استفاده: install.sh [گزینه‌ها]
 
@@ -187,6 +214,9 @@ FA[help]="روش استفاده: install.sh [گزینه‌ها]
       --proxy URL         پراکسی برای دانلود (http://، socks5://)
       --mirror URL        این آدرس را به‌جای انتشارهای GitHub به کار ببر
       --binary FILE       این برنامه را نصب کن، دانلود نکن
+      --replace           3X-UI یا PasarGuard نصب‌شده را جایگزین کن: کاربران، ورودی‌ها و تنظیماتش
+                          منتقل می‌شود، فایل‌هایش یک هفته می‌ماند و می‌شود برگشت
+      --panel NAME        کدام، اگر هر دو اینجاست (3x-ui | pasarguard)
       --uninstall         حذف Z-UI (--purge: و داده‌اش)
   -h, --help"
 
@@ -200,7 +230,7 @@ msg() {
   local text
   if [ "$LANG_CODE" = "fa" ]; then text="${FA[$key]:-${EN[$key]:-$key}}"; else text="${EN[$key]:-$key}"; fi
   # shellcheck disable=SC2059
-  printf "$text" "$@"
+  printf -- "$text" "$@"
 }
 
 c_reset=$'\033[0m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_red=$'\033[31m'; c_bold=$'\033[1m'
@@ -215,7 +245,7 @@ die() { printf '%s✗%s %s\n' "$c_red" "$c_reset" "$(msg "$@")" >&2; exit 1; }
 YES=0 VERSION="" PORT="" URL_PATH="" ADMIN_USER="" ADMIN_PASS="" DOMAIN="" EMAIL=""
 CERT_METHOD="auto" CF_TOKEN="" STAGING=0 IP_CERT=0 NO_CERT=0 NO_FW=0 NO_BBR=0 NO_NTP=0
 PROXY="" MIRROR="" BINARY="${ZUI_BINARY:-}" UNINSTALL=0 PURGE=0
-PASS_GENERATED=0 UPGRADE=0
+PASS_GENERATED=0 UPGRADE=0 REPLACE=0 PANEL=""
 
 parse_args() {
   while [ $# -gt 0 ]; do
@@ -240,6 +270,8 @@ parse_args() {
       --proxy) PROXY="${2:?}"; shift ;;
       --mirror) MIRROR="${2:?}"; shift ;;
       --binary) BINARY="${2:?}"; shift ;;
+      --replace) REPLACE=1 ;;
+      --panel) PANEL="${2:?}"; shift ;;
       --uninstall) UNINSTALL=1 ;;
       --purge) PURGE=1 ;;
       -h|--help) set_language; msg help; echo; exit 0 ;;
@@ -262,6 +294,25 @@ ask() {
   printf ': ' >&2
   if [ -t 0 ]; then read -r answer || true; else read -r answer </dev/tty || true; fi
   printf -v "$var" '%s' "${answer:-${!var:-$default}}"
+}
+
+# confirm "message key" [args]: ask a yes/no question; no is the answer when
+# nobody can be asked.
+confirm() {
+  local key="$1" answer=""
+  shift
+  interactive || return 1
+  printf '%s%s%s [y/N] ' "$c_bold" "$(msg "$key" "$@")" "$c_reset" >&2
+  if [ -t 0 ]; then read -r answer || true; else read -r answer </dev/tty || true; fi
+  case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
+# Which panels that could be replaced are here, one name a line, by what their
+# own installers leave (the program says the rest, once it is installed).
+old_panels() {
+  if [ -e "$ROOT/usr/local/x-ui/x-ui" ] || [ -e "$ROOT/etc/x-ui/x-ui.db" ]; then echo 3x-ui; fi
+  if [ -f "$ROOT/opt/pasarguard/docker-compose.yml" ]; then echo pasarguard; fi
+  if [ -f "$ROOT/opt/marzban/docker-compose.yml" ]; then echo marzban; fi
 }
 
 set_language() {
@@ -625,6 +676,33 @@ get_certificate() {
   ok cert_ok "$id"
 }
 
+# With --replace (or, asked, a yes): which panel is replaced. Says why and
+# stops before anything is downloaded or changed when it cannot be done.
+choose_replacement() {
+  local found supported="" kind count=0
+  found="$(old_panels)"
+  for kind in $found; do
+    case "$kind" in 3x-ui|pasarguard) supported="$supported $kind"; count=$((count + 1)) ;; esac
+  done
+  supported="${supported# }"
+  if [ "$REPLACE" -eq 0 ]; then
+    [ "$UPGRADE" -eq 0 ] && [ -n "$supported" ] && interactive || return 0
+    info replace_found "$supported"
+    confirm replace_ask || return 0
+    REPLACE=1
+  fi
+  if [ -z "$supported" ]; then
+    if [ -n "$found" ]; then die replace_unsupported "$(echo $found)"; else die replace_nothing; fi
+  fi
+  if [ -n "$PANEL" ]; then
+    case " $supported " in *" $PANEL "*) ;; *) die replace_nothing ;; esac
+  elif [ "$count" -gt 1 ]; then
+    die replace_many "$supported"
+  else
+    PANEL="$supported"
+  fi
+}
+
 do_install() {
   local work
   work="$(mktemp -d)"
@@ -633,6 +711,8 @@ do_install() {
   trap "rm -rf '$work'" EXIT
   [ -f "$DATA_DIR/z-ui.db" ] && UPGRADE=1 || UPGRADE=0
   [ "$UPGRADE" -eq 1 ] && info existing
+
+  choose_replacement
 
   if [ "$UPGRADE" -eq 0 ]; then
     ask PORT ask_port "${PORT:-$(random_port)}"
@@ -643,12 +723,16 @@ do_install() {
     done
     ask URL_PATH ask_path "${URL_PATH:-/$(random_hex 12)}"
     URL_PATH="$(normalise_path "$URL_PATH")" || die unknown_option "$URL_PATH"
-    ask ADMIN_USER ask_user "${ADMIN_USER:-$(random_hex 8)}"
-    ask ADMIN_PASS ask_pass ""
-    if [ -z "$ADMIN_PASS" ]; then ADMIN_PASS="$(random_hex 18)"; PASS_GENERATED=1; fi
-    if [ "$NO_CERT" -eq 0 ] && [ "$IP_CERT" -eq 0 ]; then
-      ask DOMAIN ask_domain "${DOMAIN:-}"
-      [ -n "$DOMAIN" ] && ask EMAIL ask_email "${EMAIL:-}"
+    # A replaced panel brings its admins (each sets a password at a link) and
+    # its certificate; nothing of that is asked.
+    if [ "$REPLACE" -eq 0 ]; then
+      ask ADMIN_USER ask_user "${ADMIN_USER:-$(random_hex 8)}"
+      ask ADMIN_PASS ask_pass ""
+      if [ -z "$ADMIN_PASS" ]; then ADMIN_PASS="$(random_hex 18)"; PASS_GENERATED=1; fi
+      if [ "$NO_CERT" -eq 0 ] && [ "$IP_CERT" -eq 0 ]; then
+        ask DOMAIN ask_domain "${DOMAIN:-}"
+        [ -n "$DOMAIN" ] && ask EMAIL ask_email "${EMAIL:-}"
+      fi
     fi
   fi
 
@@ -658,8 +742,12 @@ do_install() {
   write_unit
 
   if [ "$UPGRADE" -eq 0 ]; then
-    zui admin create "$ADMIN_USER" --password "$ADMIN_PASS" >/dev/null
-    ok admin_made "$ADMIN_USER"
+    if [ "$REPLACE" -eq 0 ]; then
+      zui admin create "$ADMIN_USER" --password "$ADMIN_PASS" >/dev/null
+      ok admin_made "$ADMIN_USER"
+    else
+      NO_CERT=1
+    fi
     zui setting set --port "$PORT" --path "$URL_PATH" >/dev/null
     prepare_bbr
     prepare_time
@@ -677,9 +765,36 @@ do_install() {
 
   systemd_do daemon-reload
   systemd_do enable z-ui >/dev/null 2>&1 || true
-  systemd_do restart z-ui
+  if [ "$REPLACE" -eq 1 ]; then
+    # The old panel serves until the moment of the switch, which also starts this one.
+    info replace_prepare
+    zui takeover prepare --panel "$PANEL" || die replace_failed
+    info replace_switch
+    zui takeover cutover --yes || die replace_failed
+  else
+    systemd_do restart z-ui
+  fi
   if wait_for_panel; then ok started; else warn not_started; fi
   summary
+}
+
+# After a takeover: a link for every admin that came without a password (or,
+# if the old panel had none, an admin made here), and what to do if it was a mistake.
+replace_report() {
+  local host="$1" invites
+  invites="$(zui admin invite --pending --host "$host" 2>/dev/null || true)"
+  if [ -n "$invites" ]; then
+    printf '  %s\n' "$(msg replace_invites)"
+    printf '%s\n' "$invites" | sed 's/^/    /'
+  else
+    ADMIN_USER="${ADMIN_USER:-$(random_hex 8)}"
+    ADMIN_PASS="${ADMIN_PASS:-$(random_hex 18)}"
+    zui admin create "$ADMIN_USER" --password "$ADMIN_PASS" >/dev/null
+    printf '  %s\n' "$(msg replace_made)"
+    printf '    %s: %s\n' "$(msg user)" "$ADMIN_USER"
+    printf '    %s: %s\n' "$(msg pass)" "$ADMIN_PASS"
+  fi
+  printf '  %s\n' "$(msg replace_week)"
 }
 
 summary() {
@@ -693,9 +808,15 @@ summary() {
   [ -n "$DOMAIN" ] || [ "$IP_CERT" -eq 0 ] || host="${SERVER_IP:-$host}"
   [ "$path" = "/" ] && shown="/" || shown="${path}/"
   echo
-  printf '%s%s%s\n' "$c_green" "$(msg done)" "$c_reset"
+  if [ "$REPLACE" -eq 1 ]; then
+    printf '%s%s%s\n' "$c_green" "$(msg replace_done "$PANEL")" "$c_reset"
+  else
+    printf '%s%s%s\n' "$c_green" "$(msg done)" "$c_reset"
+  fi
   printf '  %s: %s%s://%s:%s%s%s\n' "$(msg url)" "$c_bold" "$scheme" "$host" "${port:-?}" "$shown" "$c_reset"
-  if [ "$UPGRADE" -eq 0 ]; then
+  if [ "$REPLACE" -eq 1 ]; then
+    replace_report "$host"
+  elif [ "$UPGRADE" -eq 0 ]; then
     printf '  %s: %s\n' "$(msg user)" "$ADMIN_USER"
     printf '  %s: %s\n' "$(msg pass)" "$ADMIN_PASS"
   else

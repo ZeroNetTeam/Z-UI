@@ -1,6 +1,7 @@
 //! Who is making a request, and whether they may.
 
 pub mod access;
+pub mod invite;
 pub mod keys;
 pub mod password;
 pub mod permissions;

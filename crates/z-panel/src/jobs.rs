@@ -166,17 +166,13 @@ pub fn spawn(state: AppState) {
     });
 }
 
-/// One pass (see the module's description).
-pub async fn enforce_once(state: &AppState) -> Result<(), ApiError> {
-    let _guard = state.core_lock().lock().await;
-    let node = state.node();
-    let db = state.db();
-    let now = z_db::now();
-
-    // 1. Traffic.
-    let users = db.all_users().await?;
-    let by_name = accounts::by_username(&users);
-    let deltas: Vec<TrafficDelta> = node
+/// What the core counted since the last look, as users' usage.
+async fn traffic_deltas(
+    state: &AppState,
+    by_name: &std::collections::HashMap<&str, &z_db::User>,
+) -> Vec<TrafficDelta> {
+    state
+        .node()
         .traffic(true)
         .await
         .into_iter()
@@ -188,8 +184,34 @@ pub async fn enforce_once(state: &AppState) -> Result<(), ApiError> {
                 downlink: traffic.downlink as i64,
             })
         })
-        .collect();
-    db.add_traffic(&deltas).await?;
+        .collect()
+}
+
+/// A last count before the core stops, so what was used in the final
+/// seconds is not lost (a takeover that is undone gives it back).
+pub async fn flush_traffic(state: &AppState) {
+    let db = state.db();
+    let Ok(users) = db.all_users().await else {
+        return;
+    };
+    let by_name = accounts::by_username(&users);
+    if let Err(error) = db.add_traffic(&traffic_deltas(state, &by_name).await).await {
+        tracing::warn!(%error, "the last traffic could not be counted");
+    }
+}
+
+/// One pass (see the module's description).
+pub async fn enforce_once(state: &AppState) -> Result<(), ApiError> {
+    let _guard = state.core_lock().lock().await;
+    let node = state.node();
+    let db = state.db();
+    let now = z_db::now();
+
+    // 1. Traffic.
+    let users = db.all_users().await?;
+    let by_name = accounts::by_username(&users);
+    db.add_traffic(&traffic_deltas(state, &by_name).await)
+        .await?;
 
     // 2. Online.
     let online = node.online().await;

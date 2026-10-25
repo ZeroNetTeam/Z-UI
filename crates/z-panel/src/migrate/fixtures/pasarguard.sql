@@ -26,6 +26,9 @@ CREATE TABLE admin_roles (
 	CONSTRAINT pk_admin_roles PRIMARY KEY (id), 
 	CONSTRAINT uq_admin_roles_name UNIQUE (name)
 );
+INSERT INTO "admin_roles" VALUES('owner',1,'{}','{}','{}','{}','{}',0,1,1,'2026-10-25 14:10:25.916071',1);
+INSERT INTO "admin_roles" VALUES('administrator',0,'{}','{}','{}','{}','{}',0,1,1,'2026-10-25 14:10:25.916107',2);
+INSERT INTO "admin_roles" VALUES('operator',0,'{}','{}','{}','{}','{}',0,1,1,'2026-10-25 14:10:25.916120',3);
 CREATE TABLE admin_usage_logs (
 	admin_id INTEGER NOT NULL, 
 	used_traffic_at_reset BIGINT NOT NULL, 
@@ -59,6 +62,8 @@ CREATE TABLE admins (
 	CONSTRAINT ck_admins_adminstatus CHECK (status IN ('active', 'disabled', 'limited')), 
 	CONSTRAINT fk_admins_role_id_admin_roles FOREIGN KEY(role_id) REFERENCES admin_roles (id)
 );
+INSERT INTO "admins" VALUES('root','$2b$12$notarealhashnotarealhashnotarealhashnotarealhash',NULL,NULL,NULL,0,NULL,'active',NULL,NULL,NULL,NULL,NULL,'null','null',NULL,1,'null','2026-10-25 14:10:25.917166',1);
+INSERT INTO "admins" VALUES('shop','$2b$12$notarealhashnotarealhashnotarealhashnotarealhash',NULL,NULL,NULL,0,NULL,'active',NULL,NULL,NULL,NULL,NULL,'null','null',NULL,3,'null','2026-10-25 14:10:25.917329',2);
 CREATE TABLE api_keys (
 	admin_id INTEGER NOT NULL, 
 	name VARCHAR(128) NOT NULL, 
@@ -98,7 +103,7 @@ CREATE TABLE core_configs (
 	id INTEGER NOT NULL, 
 	CONSTRAINT pk_core_configs PRIMARY KEY (id)
 );
-INSERT INTO "core_configs" VALUES('Default','{"log": {"loglevel": "warning"}, "inbounds": [{"tag": "VLESS TCP REALITY", "listen": "0.0.0.0", "port": 443, "protocol": "vless", "settings": {"clients": [], "decryption": "none"}, "streamSettings": {"network": "tcp", "tcpSettings": {}, "security": "reality", "realitySettings": {"show": false, "dest": "yahoo.com:443", "xver": 0, "serverNames": ["yahoo.com", "www.yahoo.com"], "privateKey": "bSXPc0xJod0nPk2Pq19b240QmewF6P3Hwdc0d3ZIq3M", "shortIds": ["ab12cd34"]}}, "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}}, {"tag": "Trojan WS", "listen": "0.0.0.0", "port": 8443, "protocol": "trojan", "settings": {"clients": []}, "streamSettings": {"network": "ws", "wsSettings": {"path": "/trojan"}, "security": "none"}}, {"tag": "VMess WS", "listen": "0.0.0.0", "port": 8080, "protocol": "vmess", "settings": {"clients": []}, "streamSettings": {"network": "ws", "wsSettings": {"path": "/vmess"}, "security": "none"}}, {"tag": "Shadowsocks TCP", "listen": "0.0.0.0", "port": 1080, "protocol": "shadowsocks", "settings": {"clients": [], "network": "tcp,udp"}}, {"tag": "API_INBOUND", "listen": "127.0.0.1", "port": 62789, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1"}}], "outbounds": [{"protocol": "freedom", "tag": "DIRECT"}, {"protocol": "blackhole", "tag": "BLOCK"}], "routing": {"rules": [{"inboundTag": ["API_INBOUND"], "outboundTag": "API", "type": "field"}]}}','xray','API_INBOUND','','2026-10-23 13:10:12.971162',1);
+INSERT INTO "core_configs" VALUES('Default','{"log": {"loglevel": "warning"}, "inbounds": [{"tag": "VLESS TCP REALITY", "listen": "0.0.0.0", "port": 443, "protocol": "vless", "settings": {"clients": [], "decryption": "none"}, "streamSettings": {"network": "tcp", "tcpSettings": {}, "security": "reality", "realitySettings": {"show": false, "dest": "yahoo.com:443", "xver": 0, "serverNames": ["yahoo.com", "www.yahoo.com"], "privateKey": "bSXPc0xJod0nPk2Pq19b240QmewF6P3Hwdc0d3ZIq3M", "shortIds": ["ab12cd34"]}}, "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}}, {"tag": "Trojan WS", "listen": "0.0.0.0", "port": 8443, "protocol": "trojan", "settings": {"clients": []}, "streamSettings": {"network": "ws", "wsSettings": {"path": "/trojan"}, "security": "none"}}, {"tag": "VMess WS", "listen": "0.0.0.0", "port": 8080, "protocol": "vmess", "settings": {"clients": []}, "streamSettings": {"network": "ws", "wsSettings": {"path": "/vmess"}, "security": "none"}}, {"tag": "Shadowsocks TCP", "listen": "0.0.0.0", "port": 1080, "protocol": "shadowsocks", "settings": {"clients": [], "network": "tcp,udp"}}, {"tag": "API_INBOUND", "listen": "127.0.0.1", "port": 62789, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1"}}], "outbounds": [{"protocol": "freedom", "tag": "DIRECT"}, {"protocol": "blackhole", "tag": "BLOCK"}], "routing": {"rules": [{"inboundTag": ["API_INBOUND"], "outboundTag": "API", "type": "field"}]}}','xray','API_INBOUND','','2026-10-25 14:10:25.912371',1);
 CREATE TABLE groups (
 	name VARCHAR(64) NOT NULL, 
 	is_disabled BOOLEAN DEFAULT '0' NOT NULL, 
@@ -160,11 +165,11 @@ CREATE TABLE inbounds_groups_association (
 	CONSTRAINT fk_inbounds_groups_association_inbound_id_inbounds FOREIGN KEY(inbound_id) REFERENCES inbounds (id), 
 	CONSTRAINT fk_inbounds_groups_association_group_id_groups FOREIGN KEY(group_id) REFERENCES groups (id)
 );
-INSERT INTO "inbounds_groups_association" VALUES(3,2);
-INSERT INTO "inbounds_groups_association" VALUES(4,2);
 INSERT INTO "inbounds_groups_association" VALUES(3,3);
 INSERT INTO "inbounds_groups_association" VALUES(1,1);
 INSERT INTO "inbounds_groups_association" VALUES(2,1);
+INSERT INTO "inbounds_groups_association" VALUES(3,2);
+INSERT INTO "inbounds_groups_association" VALUES(4,2);
 CREATE TABLE jwt (
 	secret_key VARCHAR(64) NOT NULL, 
 	id INTEGER NOT NULL, 
@@ -352,7 +357,7 @@ CREATE TABLE user_usage_logs (
 	CONSTRAINT pk_user_usage_logs PRIMARY KEY (id), 
 	CONSTRAINT fk_user_usage_logs_user_id_users FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE
 );
-INSERT INTO "user_usage_logs" VALUES(6,5368709120,'2026-10-23 13:10:12.982799',1);
+INSERT INTO "user_usage_logs" VALUES(6,5368709120,'2026-10-25 14:10:25.927478',1);
 CREATE TABLE users (
 	username VARCHAR(128) COLLATE BINARY NOT NULL, 
 	proxy_settings JSON DEFAULT '{}' NOT NULL, 
@@ -376,9 +381,9 @@ CREATE TABLE users (
 	CONSTRAINT pk_users PRIMARY KEY (id), 
 	CONSTRAINT fk_users_admin_id_admins FOREIGN KEY(admin_id) REFERENCES admins (id)
 );
-INSERT INTO "users" VALUES('alice','{"vmess": {"id": "00000001-aaaa-4bbb-8ccc-000000000001"}, "vless": {"id": "00000001-aaaa-4bbb-8ccc-000000000001", "flow": "xtls-rprx-vision"}, "trojan": {"password": "trojan-pass-1"}, "shadowsocks": {"password": "ss-pass-1", "method": "chacha20-ietf-poly1305"}}','active',3221225472,10737418240,'month','2027-03-01 00:00:00.000000',NULL,NULL,'VIP customer','2026-10-22 18:05:00.000000',NULL,NULL,NULL,NULL,NULL,NULL,'2026-01-10 09:30:00.000000',1);
+INSERT INTO "users" VALUES('alice','{"vmess": {"id": "00000001-aaaa-4bbb-8ccc-000000000001"}, "vless": {"id": "00000001-aaaa-4bbb-8ccc-000000000001", "flow": "xtls-rprx-vision"}, "trojan": {"password": "trojan-pass-1"}, "shadowsocks": {"password": "ss-pass-1", "method": "chacha20-ietf-poly1305"}}','active',3221225472,10737418240,'month','2027-03-01 00:00:00.000000',2,NULL,'VIP customer','2026-10-22 18:05:00.000000',NULL,NULL,NULL,NULL,NULL,NULL,'2026-01-10 09:30:00.000000',1);
 INSERT INTO "users" VALUES('bob_sh','{"vmess": {"id": "00000002-aaaa-4bbb-8ccc-000000000002"}, "vless": {"id": "00000002-aaaa-4bbb-8ccc-000000000002", "flow": ""}, "trojan": {"password": "trojan-pass-2"}, "shadowsocks": {"password": "ss-pass-2", "method": "chacha20-ietf-poly1305"}}','on_hold',0,NULL,'no_reset',NULL,NULL,NULL,NULL,NULL,2592000,'2026-12-01 00:00:00.000000',NULL,NULL,NULL,NULL,'2026-08-02 12:00:00.000000',2);
-INSERT INTO "users" VALUES('carol','{"vmess": {"id": "00000003-aaaa-4bbb-8ccc-000000000003"}, "vless": {"id": "00000003-aaaa-4bbb-8ccc-000000000003", "flow": ""}, "trojan": {"password": "trojan-pass-3"}, "shadowsocks": {"password": "ss-pass-3", "method": "chacha20-ietf-poly1305"}}','limited',1288490188,1073741824,'no_reset',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,2,NULL,NULL,'2026-03-03 08:00:00.000000',3);
+INSERT INTO "users" VALUES('carol','{"vmess": {"id": "00000003-aaaa-4bbb-8ccc-000000000003"}, "vless": {"id": "00000003-aaaa-4bbb-8ccc-000000000003", "flow": ""}, "trojan": {"password": "trojan-pass-3"}, "shadowsocks": {"password": "ss-pass-3", "method": "chacha20-ietf-poly1305"}}','limited',1288490188,1073741824,'no_reset',NULL,2,NULL,NULL,NULL,NULL,NULL,NULL,2,NULL,NULL,'2026-03-03 08:00:00.000000',3);
 INSERT INTO "users" VALUES('dave','{"vmess": {"id": "00000004-aaaa-4bbb-8ccc-000000000004"}, "vless": {"id": "00000004-aaaa-4bbb-8ccc-000000000004", "flow": ""}, "trojan": {"password": "trojan-pass-4"}, "shadowsocks": {"password": "ss-pass-4", "method": "chacha20-ietf-poly1305"}}','expired',2147483648,5368709120,'no_reset','2026-09-01 00:00:00.000000',NULL,'2026-06-01 00:00:00.000000',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-01-05 07:00:00.000000',4);
 INSERT INTO "users" VALUES('eve.test','{"vmess": {"id": "00000037-aaaa-4bbb-8ccc-000000000037"}, "vless": {"id": "00000005-aaaa-4bbb-8ccc-000000000005", "flow": ""}, "trojan": {"password": "trojan-pass-5"}, "shadowsocks": {"password": "other-ss-pass", "method": "chacha20-ietf-poly1305"}}','disabled',0,NULL,'no_reset',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-05-05 05:05:00.000000',5);
 INSERT INTO "users" VALUES('frank','{"vmess": {"id": "00000006-aaaa-4bbb-8ccc-000000000006"}, "vless": {"id": "00000006-aaaa-4bbb-8ccc-000000000006", "flow": ""}, "trojan": {"password": "trojan-pass-6"}, "shadowsocks": {"password": "ss-pass-6", "method": "chacha20-ietf-poly1305"}}','active',1073741824,21474836480,'week',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-02-14 14:00:00.000000',6);
@@ -389,12 +394,12 @@ CREATE TABLE users_groups_association (
 	CONSTRAINT fk_users_groups_association_user_id_users FOREIGN KEY(user_id) REFERENCES users (id), 
 	CONSTRAINT fk_users_groups_association_groups_id_groups FOREIGN KEY(groups_id) REFERENCES groups (id)
 );
-INSERT INTO "users_groups_association" VALUES(1,2);
-INSERT INTO "users_groups_association" VALUES(2,2);
-INSERT INTO "users_groups_association" VALUES(4,2);
 INSERT INTO "users_groups_association" VALUES(1,1);
 INSERT INTO "users_groups_association" VALUES(3,1);
 INSERT INTO "users_groups_association" VALUES(6,1);
+INSERT INTO "users_groups_association" VALUES(1,2);
+INSERT INTO "users_groups_association" VALUES(2,2);
+INSERT INTO "users_groups_association" VALUES(4,2);
 CREATE TABLE wireguard_subnets (
 	network VARCHAR(64) NOT NULL, 
 	next_offset INTEGER NOT NULL, 
@@ -408,18 +413,18 @@ CREATE INDEX ix_client_templates_template_type ON client_templates (template_typ
 CREATE UNIQUE INDEX ix_admins_username ON admins (username);
 CREATE INDEX idx_users_admin_created ON users (admin_id, created_at);
 CREATE UNIQUE INDEX ix_users_username ON users (username);
-CREATE INDEX idx_users_admin_online ON users (admin_id, online_at);
 CREATE INDEX idx_users_admin_status ON users (admin_id, status);
+CREATE INDEX idx_users_admin_online ON users (admin_id, online_at);
 CREATE INDEX ix_node_usages_created_at ON node_usages (created_at);
 CREATE INDEX ix_node_usage_reset_logs_node_id_created_at ON node_usage_reset_logs (node_id, created_at);
 CREATE INDEX ix_admin_notification_reminders_admin_id_type ON admin_notification_reminders (admin_id, type);
-CREATE INDEX ix_api_keys_admin_id ON api_keys (admin_id);
 CREATE INDEX ix_api_keys_expire_date ON api_keys (expire_date);
 CREATE INDEX ix_api_keys_created_at ON api_keys (created_at);
+CREATE INDEX ix_api_keys_admin_id ON api_keys (admin_id);
 CREATE INDEX idx_user_subscription_updates_user_created ON user_subscription_updates (user_id, created_at);
 CREATE INDEX idx_user_subscription_updates_user_id ON user_subscription_updates (user_id);
-CREATE INDEX ix_user_hwids_created_at ON user_hwids (created_at);
 CREATE INDEX ix_user_hwids_user_id ON user_hwids (user_id);
+CREATE INDEX ix_user_hwids_created_at ON user_hwids (created_at);
 CREATE INDEX ix_user_hwids_hwid ON user_hwids (hwid);
 CREATE INDEX ix_user_hwids_last_used_at ON user_hwids (last_used_at);
 CREATE INDEX ix_next_plans_user_template_id ON next_plans (user_template_id);

@@ -71,6 +71,20 @@ impl Database {
         Ok(())
     }
 
+    /// Make user `id`'s charts these hours and no others: what an earlier
+    /// import put there is replaced by what the old panel counted since.
+    pub async fn replace_usage_hours(
+        &self,
+        user_id: i64,
+        hours: &[(i64, i64, i64)],
+    ) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM user_usage WHERE user_id = $1")
+            .bind(user_id)
+            .execute(self.pool())
+            .await?;
+        self.add_usage_hours(user_id, hours).await
+    }
+
     /// Remember the key the old panel (`kind`) signed its links with.
     pub async fn set_legacy_secret(&self, kind: &str, secret: &str) -> Result<(), DbError> {
         sqlx::query(
@@ -289,6 +303,19 @@ mod tests {
             .fold((0, 0), |a, p| (a.0 + p.uplink, a.1 + p.downlink));
         assert_eq!(points.len(), 2, "two hours");
         assert_eq!(sum, (3, 35));
+
+        // Replaced, not added to: the last count of the old panel is the one.
+        db.replace_usage_hours(user.id, &[(7200, 4, 40)])
+            .await
+            .unwrap();
+        let points = db.user_usage(user.id, 0).await.unwrap();
+        assert_eq!(
+            points
+                .iter()
+                .map(|p| (p.hour, p.uplink, p.downlink))
+                .collect::<Vec<_>>(),
+            [(7200, 4, 40)]
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

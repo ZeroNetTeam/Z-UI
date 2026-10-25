@@ -1266,3 +1266,192 @@ async fn bad_uploads_are_refused_and_leave_nothing_behind() {
     assert_eq!(gone.status, StatusCode::NO_CONTENT, "{}", gone.body);
     assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0);
 }
+
+#[tokio::test]
+async fn the_admins_of_each_panel_are_read_with_who_is_sudo_and_whose_users_are_whose() {
+    let plan = plan_of(PASARGUARD).await;
+    let admins: Vec<(&str, bool)> = plan
+        .admins
+        .iter()
+        .map(|a| (a.name.as_str(), a.sudo))
+        .collect();
+    assert_eq!(
+        admins,
+        [("root", true), ("shop", false)],
+        "the owner role is sudo"
+    );
+    let shop = plan
+        .admins
+        .iter()
+        .find(|a| a.name == "shop")
+        .unwrap()
+        .source_id;
+    assert_eq!(user(&plan, "alice").owner, Some(shop));
+    assert_eq!(user(&plan, "carol").owner, Some(shop));
+    assert_eq!(user(&plan, "bob_sh").owner, None);
+
+    let classic = plan_of(CLASSIC).await;
+    assert_eq!(classic.admins.len(), 1);
+    assert!(classic.admins[0].sudo && classic.admins[0].name == "admin");
+
+    let db = TempDb::new(MARZBAN).await;
+    let marzban = read(db.path(), None, Some(&marzban_config()))
+        .await
+        .unwrap();
+    assert_eq!(
+        marzban
+            .admins
+            .iter()
+            .map(|a| (a.name.as_str(), a.sudo))
+            .collect::<Vec<_>>(),
+        [("root", true), ("shop", false)]
+    );
+    assert_eq!(user(&marzban, "zed").owner, Some(2));
+}
+
+#[tokio::test]
+async fn the_old_admins_come_without_passwords_and_keep_their_users_and_a_link_sets_each_one() {
+    let (panel, owner) = world().await;
+    let report = imported(&panel, &owner, PASARGUARD, json!({})).await;
+    assert_eq!(report["imported"]["admins"], 2);
+
+    let db = panel.state.db();
+    let admins = db.admins().await.unwrap();
+    let root = admins.iter().find(|a| a.username == "root").unwrap();
+    let shop = admins.iter().find(|a| a.username == "shop").unwrap();
+    assert!(root.is_sudo && root.pending() && root.role_id.is_none());
+    assert!(!shop.is_sudo && shop.pending());
+    let reseller = db
+        .roles()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.name == "Reseller")
+        .unwrap();
+    assert_eq!(
+        shop.role_id,
+        Some(reseller.id),
+        "a reseller of its own users"
+    );
+    let users = db.all_users().await.unwrap();
+    assert_eq!(
+        users
+            .iter()
+            .find(|u| u.username == "alice")
+            .unwrap()
+            .admin_id,
+        Some(shop.id)
+    );
+    assert_eq!(
+        users
+            .iter()
+            .find(|u| u.username == "bob_sh")
+            .unwrap()
+            .admin_id,
+        None
+    );
+    // The admin who is signed in is left as it is.
+    assert!(admins.iter().any(|a| a.username == "owner" && !a.pending()));
+
+    // They cannot sign in: there is no password to give.
+    let refused = panel
+        .send(
+            "POST",
+            "/api/auth/login",
+            None,
+            Some(json!({"username": "root", "password": "!"})),
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    let listed = panel.get("/api/admins", Some(&owner)).await.json();
+    let row = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["username"] == "root")
+        .unwrap();
+    assert_eq!(row["pending"], true);
+
+    // The link: shown whose it is, refuses a weak password without being used up,
+    // sets the password and signs in, and is good once.
+    let token = crate::auth::invite::issue(db, root.id).await.unwrap();
+    let peek = panel.get(&format!("/api/auth/invite/{token}"), None).await;
+    assert_eq!(
+        (peek.status, peek.json()["username"].clone()),
+        (StatusCode::OK, json!("root"))
+    );
+    let weak = panel
+        .send(
+            "POST",
+            &format!("/api/auth/invite/{token}"),
+            None,
+            Some(json!({"password": "short"})),
+        )
+        .await;
+    assert_eq!(
+        (weak.status, weak.json()["error"].clone()),
+        (StatusCode::BAD_REQUEST, json!("weak_password"))
+    );
+    let set = panel
+        .send(
+            "POST",
+            &format!("/api/auth/invite/{token}"),
+            None,
+            Some(json!({"password": "a-new-long-password"})),
+        )
+        .await;
+    assert_eq!(set.status, StatusCode::OK, "{}", set.body);
+    assert!(set.session().is_some(), "signed in");
+    assert!(!db
+        .admin_by_username("root")
+        .await
+        .unwrap()
+        .unwrap()
+        .pending());
+    panel.sign_in("root", "a-new-long-password").await;
+    let again = panel
+        .send(
+            "POST",
+            &format!("/api/auth/invite/{token}"),
+            None,
+            Some(json!({"password": "another-long-password"})),
+        )
+        .await;
+    assert_eq!(
+        (again.status, again.json()["error"].clone()),
+        (StatusCode::NOT_FOUND, json!("invalid_invite"))
+    );
+    assert_eq!(
+        panel.get("/api/auth/invite/not-a-token", None).await.status,
+        StatusCode::NOT_FOUND
+    );
+
+    // A link that has run out, and a newer link replacing the older.
+    let old = crate::auth::invite::new_token();
+    db.create_invite(shop.id, &crate::auth::invite::hash(&old), z_db::now() - 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        panel
+            .get(&format!("/api/auth/invite/{old}"), None)
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    let first = crate::auth::invite::issue(db, shop.id).await.unwrap();
+    let second = crate::auth::invite::issue(db, shop.id).await.unwrap();
+    assert_eq!(
+        panel
+            .get(&format!("/api/auth/invite/{first}"), None)
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        panel
+            .get(&format!("/api/auth/invite/{second}"), None)
+            .await
+            .status,
+        StatusCode::OK
+    );
+}

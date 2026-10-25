@@ -28,7 +28,7 @@ EN[m1]="Start"; EN[m2]="Stop"; EN[m3]="Restart"; EN[m4]="Status"; EN[m5]="Logs"
 EN[m6]="Update"; EN[m7]="Roll back the last update"; EN[m8]="Show address and settings"
 EN[m9]="Change the port"; EN[m10]="Change the secret path"; EN[m11]="Domain and HTTPS certificate"
 EN[m12]="Reset an admin's password"; EN[m13]="Back up now"; EN[m14]="Restore a backup"
-EN[m15]="Language"; EN[m16]="Uninstall"; EN[m0]="Exit"
+EN[m15]="Language"; EN[m16]="Uninstall"; EN[m17]="The replaced panel: go back, or delete its files"; EN[m0]="Exit"
 EN[choose]="Choose"
 EN[invalid]="That is not a choice."
 EN[restart_now]="Restart the panel now so this takes effect?"
@@ -52,6 +52,8 @@ EN[kept_data]="The data is kept in %s"
 EN[sure_restore]="Everything the panel keeps is replaced by this backup (the present state is saved first). Stop the panel, restore, start it?"
 EN[restored]="Restored; the panel was started again."
 EN[lang_set]="Language set."
+EN[t_back]="I made a mistake: bring the old panel back"
+EN[t_delete]="Delete the old panel's files (no way back)"
 EN[help]="Usage: z-ui [command]
 
   (none)             the menu
@@ -63,6 +65,9 @@ EN[help]="Usage: z-ui [command]
                      get an HTTPS certificate and use it
   password [USER] [--2fa]   a new password (a random one is shown)
   backup | restore FILE
+  takeover status | rollback | delete-old
+                     the panel Z-UI replaced: where it stands | bring it back (for a
+                     week) | delete its files now
   uninstall [--purge]   remove it (--purge: the data too)
   version | lang fa|en
   -y                 answer yes to every question"
@@ -72,7 +77,7 @@ FA[m1]="شروع"; FA[m2]="توقف"; FA[m3]="راه‌اندازی دوباره
 FA[m6]="به‌روزرسانی"; FA[m7]="برگشت به‌روزرسانی قبلی"; FA[m8]="نمایش آدرس و تنظیمات"
 FA[m9]="تغییر پورت"; FA[m10]="تغییر مسیر مخفی"; FA[m11]="دامنه و گواهی HTTPS"
 FA[m12]="بازنشانی رمز یک ادمین"; FA[m13]="بکاپ همین حالا"; FA[m14]="بازگرداندن بکاپ"
-FA[m15]="زبان"; FA[m16]="حذف"; FA[m0]="خروج"
+FA[m15]="زبان"; FA[m16]="حذف"; FA[m17]="پنل جایگزین‌شده: برگشت یا پاک کردن فایل‌هایش"; FA[m0]="خروج"
 FA[choose]="انتخاب"
 FA[invalid]="این گزینه‌ای نیست."
 FA[restart_now]="پنل الان دوباره راه‌اندازی شود تا اعمال شود؟"
@@ -96,6 +101,8 @@ FA[kept_data]="داده در %s نگه داشته شد"
 FA[sure_restore]="هرچه پنل نگه می‌دارد با این بکاپ عوض می‌شود (وضعیت فعلی اول ذخیره می‌شود). پنل متوقف، بکاپ برگردانده و پنل شروع شود؟"
 FA[restored]="برگردانده شد و پنل دوباره شروع شد."
 FA[lang_set]="زبان تنظیم شد."
+FA[t_back]="غلط کردم: پنل قبلی را برگردان"
+FA[t_delete]="فایل‌های پنل قبلی را پاک کن (راه برگشتی نیست)"
 FA[help]="روش استفاده: z-ui [فرمان]
 
   (هیچ)              منو
@@ -107,6 +114,9 @@ FA[help]="روش استفاده: z-ui [فرمان]
                      گواهی HTTPS بگیر و به کار ببر
   password [USER] [--2fa]   رمز تازه (رمز تصادفی نشان داده می‌شود)
   backup | restore FILE
+  takeover status | rollback | delete-old
+                     پنلی که Z-UI جایش آمده: وضعیت | برگرداندنش (تا یک هفته)
+                     | پاک کردن فایل‌هایش همین حالا
   uninstall [--purge]   حذف (--purge: داده هم)
   version | lang fa|en
   -y                 به همه‌ی پرسش‌ها بله"
@@ -120,7 +130,7 @@ msg() {
   local text
   if [ "$LANG_CODE" = fa ]; then text="${FA[$key]:-${EN[$key]:-$key}}"; else text="${EN[$key]:-$key}"; fi
   # shellcheck disable=SC2059
-  printf "$text" "$@"
+  printf -- "$text" "$@"
 }
 
 YES=0
@@ -228,6 +238,29 @@ cmd_restore() {
   msg restored; echo
 }
 
+# `z-ui takeover ...` for scripts: the question-asking steps get the -y that
+# the menu took off.
+cmd_takeover_args() {
+  local sub="${1:-status}"
+  [ $# -gt 0 ] && shift
+  case "$sub" in
+    rollback|delete-old|cutover|run) [ "$YES" -eq 1 ] && set -- "$@" --yes ;;
+  esac
+  zui takeover "$sub" "$@"
+}
+
+# The panel Z-UI replaced: where it stands, and the two things that can be done.
+cmd_takeover() {
+  local choice=""
+  zui takeover status || true
+  printf '  1) %s\n  2) %s\n  0) %s\n%s: ' "$(msg t_back)" "$(msg t_delete)" "$(msg m0)" "$(msg choose)" >&2
+  read -r choice || return 0
+  case "$choice" in
+    1) zui takeover rollback ;;
+    2) zui takeover delete-old ;;
+  esac
+}
+
 cmd_lang() {
   local lang="${1:-}"
   case "$lang" in fa|en) ;; *) [ "$LANG_CODE" = fa ] && lang=en || lang=fa ;; esac
@@ -272,7 +305,7 @@ menu() {
     echo
     printf '%s%s%s\n' $'\033[1m' "$(msg title) — $(zui --version 2>/dev/null | head -n1)" $'\033[0m'
     local i
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do printf '  %2d) %s\n' "$i" "$(msg "m$i")"; done
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17; do printf '  %2d) %s\n' "$i" "$(msg "m$i")"; done
     printf '   0) %s\n' "$(msg m0)"
     printf '%s: ' "$(msg choose)" >&2
     read -r choice || exit 0
@@ -293,6 +326,7 @@ menu() {
       14) cmd_restore ;;
       15) cmd_lang ;;
       16) cmd_uninstall; exit 0 ;;
+      17) cmd_takeover ;;
       0|q|"") exit 0 ;;
       *) msg invalid; echo ;;
     esac
@@ -316,6 +350,7 @@ main() {
     cert|domain) cmd_cert "$@" ;;
     password) cmd_password "$@" ;;
     admin) zui admin "$@" ;;
+    takeover) cmd_takeover_args "$@" ;;
     backup) zui backup "$@" ;;
     restore) cmd_restore "$@" ;;
     uninstall) cmd_uninstall "$@" ;;

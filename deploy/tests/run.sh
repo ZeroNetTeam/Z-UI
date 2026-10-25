@@ -273,5 +273,82 @@ print(s.getsockname()[1], flush=True); time.sleep(30)' >"$WORK/taken" &
   unset ZUI_PREFIX ZUI_NO_SYSTEMD ZUI_SKIP_ROOT_CHECK ZUI_MENU_SCRIPT
 fi
 
+# ----------------------------------------------------------------------------
+section "replacing a panel with --replace"
+if [ ! -x "$PROGRAM" ] || ! command -v python3 >/dev/null 2>&1; then
+  t_ok "replacing (the program or python3 is not here; skipped)"
+else
+  FIXTURES="$SRC/crates/z-panel/src/migrate/fixtures"
+  old_machine() { # old_machine ROOT: 3X-UI as its installer leaves it
+    local root="$1"
+    mkdir -p "$root/usr/local/x-ui/bin" "$root/etc/x-ui" "$root/etc/systemd/system" "$root/usr/bin"
+    echo binary >"$root/usr/local/x-ui/x-ui"
+    echo xray >"$root/usr/local/x-ui/bin/xray-linux-amd64"
+    printf '[Service]\nExecStart=/usr/local/x-ui/x-ui\n' >"$root/etc/systemd/system/x-ui.service"
+    python3 - "$FIXTURES/threexui_classic.sql" "$root/etc/x-ui/x-ui.db" <<'PY'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[2]); c.executescript(open(sys.argv[1]).read()); c.close()
+PY
+  }
+  export ZUI_NO_SYSTEMD=1 ZUI_SKIP_ROOT_CHECK=1 ZUI_MENU_SCRIPT="$MENU_SRC"
+  flags=(--yes --lang en --binary "$PROGRAM" --no-firewall --no-bbr --no-ntp)
+
+  # Nothing to replace, and something that cannot be replaced: said before anything is installed.
+  out="$(ZUI_PREFIX="$WORK/r-none" bash "$INSTALL" "${flags[@]}" --replace 2>&1)"; rc=$?
+  t_check "--replace with nothing here stops" test "$rc" -ne 0
+  t_contains "and says what it looks for" "$out" "no 3X-UI or PasarGuard"
+  t_check "and installs nothing" test ! -e "$WORK/r-none/usr/local/z-ui/z-ui"
+  mkdir -p "$WORK/r-marz/opt/marzban"; : >"$WORK/r-marz/opt/marzban/docker-compose.yml"
+  out="$(ZUI_PREFIX="$WORK/r-marz" bash "$INSTALL" "${flags[@]}" --replace 2>&1)"; rc=$?
+  t_check "Marzban is not replaced" test "$rc" -ne 0
+  t_contains "and the installer says only 3X-UI and PasarGuard are" "$out" "only for 3X-UI and PasarGuard"
+  t_check "and installs nothing either" test ! -e "$WORK/r-marz/usr/local/z-ui/z-ui"
+  old_machine "$WORK/r-wrong"
+  out="$(ZUI_PREFIX="$WORK/r-wrong" bash "$INSTALL" "${flags[@]}" --replace --panel pasarguard 2>&1)"; rc=$?
+  t_check "naming a panel that is not here stops" test "$rc" -ne 0
+
+  # 3X-UI replaced for real (the machine is a directory; no service is touched).
+  ROOT_R="$WORK/root-r"; PORT_R=$((20000 + RANDOM % 20000))
+  old_machine "$ROOT_R"
+  before="$(cd "$ROOT_R" && find usr/local/x-ui etc/x-ui etc/systemd/system/x-ui.service -type f | sort | xargs sha256sum | grep -v x-ui.db)"
+  out="$(ZUI_PREFIX="$ROOT_R" bash "$INSTALL" "${flags[@]}" --replace --port "$PORT_R" --path /r 2>&1)"; rc=$?
+  t_equal "the replacement succeeds" 0 "$rc"
+  [ "$rc" -ne 0 ] && printf '%s\n' "$out" | sed 's/^/       | /'
+  t_contains "it says Z-UI has taken over" "$out" "Z-UI has taken over from 3x-ui"
+  t_contains "it gives the admin a link to set a password" "$out" ":$PORT_R/r/invite/"
+  t_contains "it names the admin that came" "$out" "admin  http"
+  t_contains "it says how to go back" "$out" "z-ui takeover rollback"
+  case "$out" in *"Password"*) t_bad "no password is shown: there is a link instead" ;; *) t_ok "no password is shown: there is a link instead" ;; esac
+  menu() { ZUI_PREFIX="$ROOT_R" "$ROOT_R/usr/local/bin/z-ui" "$@"; }
+  t_contains "the old admin came without a password" "$(menu admin list 2>&1)" "(no password yet)"
+  t_contains "the takeover is switched" "$(menu takeover status 2>&1)" "Switched"
+  after="$(cd "$ROOT_R" && find usr/local/x-ui etc/x-ui etc/systemd/system/x-ui.service -type f | sort | xargs sha256sum | grep -v x-ui.db)"
+  t_equal "the old panel's files are all still there, unchanged" "$before" "$after"
+  # Its users came over.
+  t_contains "the old panel's inbounds are here" "$(ZUI_DATA_DIR="$ROOT_R/var/lib/z-ui" ZUI_PREFIX="$ROOT_R" "$ROOT_R/usr/local/z-ui/z-ui" takeover status 2>&1)" "3x-ui"
+
+  # "I made a mistake", and then there is no old panel's data to delete or to go back from.
+  out="$(menu takeover rollback --yes 2>&1)"; rc=$?
+  t_equal "going back succeeds" 0 "$rc"
+  t_contains "and says the old panel is back" "$out" "the old panel is back"
+  t_contains "the takeover now says it was rolled back" "$(menu takeover status 2>&1)" "RolledBack"
+  menu takeover delete-old --yes >/dev/null 2>&1
+  t_check "after going back, deleting the old files is refused" test $? -ne 0
+  t_check "and the old panel's files are untouched" test -f "$ROOT_R/usr/local/x-ui/x-ui" -a -f "$ROOT_R/etc/x-ui/x-ui.db"
+
+  # Delete the old panel's data from another takeover.
+  ROOT_S="$WORK/root-s"; PORT_S=$((20000 + RANDOM % 20000))
+  old_machine "$ROOT_S"
+  ZUI_PREFIX="$ROOT_S" bash "$INSTALL" "${flags[@]}" --replace --port "$PORT_S" --path /s >/dev/null 2>&1
+  ZUI_PREFIX="$ROOT_S" "$ROOT_S/usr/local/bin/z-ui" takeover delete-old --yes >/dev/null 2>&1
+  t_equal "deleting the old panel's data succeeds" 0 "$?"
+  t_check "and it is gone" test ! -e "$ROOT_S/usr/local/x-ui" -a ! -e "$ROOT_S/etc/x-ui" -a ! -e "$ROOT_S/usr/bin/x-ui"
+  t_check "but not Z-UI or its data" test -x "$ROOT_S/usr/local/z-ui/z-ui" -a -f "$ROOT_S/var/lib/z-ui/z-ui.db"
+
+  # A person at the terminal is asked first when a panel is found and --replace was not given.
+  t_contains "the help names --replace" "$(bash "$INSTALL" --help --lang en 2>&1)" "--replace"
+  unset ZUI_NO_SYSTEMD ZUI_SKIP_ROOT_CHECK ZUI_MENU_SCRIPT
+fi
+
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]

@@ -12,11 +12,13 @@ CREATE TABLE node_user_usages (id INTEGER NOT NULL, created_at DATETIME, user_id
 CREATE TABLE user_usage_logs (id INTEGER NOT NULL, user_id INTEGER, used_traffic_at_reset BIGINT NOT NULL, reset_at DATETIME, PRIMARY KEY (id), FOREIGN KEY(user_id) REFERENCES users (id));
 CREATE TABLE next_plans (id INTEGER NOT NULL, user_id INTEGER, data_limit BIGINT NOT NULL, expire INTEGER, add_remaining_traffic BOOLEAN NOT NULL DEFAULT 0, fire_on_either BOOLEAN NOT NULL DEFAULT 1, PRIMARY KEY (id), FOREIGN KEY(user_id) REFERENCES users (id));
 INSERT INTO "jwt" (id, secret_key) VALUES (1, 'c2f6a1e49b7d3058e1a4c7f9b2d6803e5a1c4e7f90b3d6a28c5e1f4b7a0d3c69');
+INSERT INTO "admins" (id, username, hashed_password, created_at, is_sudo) VALUES (1, 'root', '$2b$12$notarealhash', '2026-01-01 00:00:00.000000', 1);
+INSERT INTO "admins" (id, username, hashed_password, created_at, is_sudo) VALUES (2, 'shop', '$2b$12$notarealhash', '2026-02-01 00:00:00.000000', 0);
 INSERT INTO "inbounds" (id, tag) VALUES (1, 'VLESS TCP REALITY');
 INSERT INTO "inbounds" (id, tag) VALUES (2, 'VMess WS');
 INSERT INTO "inbounds" (id, tag) VALUES (3, 'Trojan TCP');
 INSERT INTO "inbounds" (id, tag) VALUES (4, 'Shadowsocks TCP');
-INSERT INTO "users" (id, username, status, used_traffic, data_limit, expire, created_at, data_limit_reset_strategy, note, online_at) VALUES (1, 'zed', 'active', 5368709120, 21474836480, 1830000000, '2026-01-12 10:00:00.000000', 'month', 'main', '2026-10-22 18:00:00.000000');
+INSERT INTO "users" (id, username, status, used_traffic, data_limit, expire, created_at, data_limit_reset_strategy, note, online_at, admin_id) VALUES (1, 'zed', 'active', 5368709120, 21474836480, 1830000000, '2026-01-12 10:00:00.000000', 'month', 'main', '2026-10-22 18:00:00.000000', 2);
 INSERT INTO "users" (id, username, status, used_traffic, data_limit, expire, created_at, data_limit_reset_strategy, on_hold_expire_duration, on_hold_timeout) VALUES (2, 'yan', 'on_hold', 0, 0, NULL, '2026-09-01 08:00:00.000000', 'no_reset', 604800, '2026-12-31 00:00:00.000000');
 INSERT INTO "users" (id, username, status, used_traffic, data_limit, expire, created_at, data_limit_reset_strategy) VALUES (3, 'xia', 'limited', 2684354560, 2147483648, NULL, '2026-03-03 03:03:03.000000', 'no_reset');
 INSERT INTO "users" (id, username, status, used_traffic, data_limit, expire, created_at, data_limit_reset_strategy, sub_revoked_at) VALUES (4, 'wei', 'disabled', 0, 0, NULL, '2026-05-05 05:05:05.000000', 'no_reset', '2026-07-01 00:00:00.000000');

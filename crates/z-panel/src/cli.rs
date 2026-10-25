@@ -11,7 +11,8 @@ use crate::auth;
 use crate::auth::session::SessionKeys;
 use crate::certs::{self, acme};
 use crate::config::{
-    AdminCommand, CertCommand, Command, MigrateArgs, PanelConfig, SettingCommand, UpdateCommand,
+    AdminCommand, CertCommand, Command, MigrateArgs, PanelConfig, SettingCommand, TakeoverCommand,
+    UpdateCommand,
 };
 use crate::panel_settings::{self, Stored};
 use crate::server::AppState;
@@ -24,7 +25,7 @@ pub async fn run(
     command: &Command,
 ) -> anyhow::Result<()> {
     match command {
-        Command::Admin(command) => admin(db, command).await,
+        Command::Admin(command) => admin(config, db, stored, command).await,
         Command::Setting(command) => setting(db, config, stored, command).await,
         Command::Cert(command) => cert(config, db, command).await,
         Command::Update(command) => update_command(db, command).await,
@@ -33,6 +34,7 @@ pub async fn run(
             restore(config, db, file, passphrase.as_deref()).await
         }
         Command::Migrate(args) => migrate(config, db, args).await,
+        Command::Takeover(command) => takeover(config, db, command).await,
         Command::Health => health(config, stored).await,
     }
 }
@@ -52,7 +54,12 @@ async fn offline(config: &PanelConfig, db: &z_db::Database) -> AppState {
     state
 }
 
-async fn admin(db: &z_db::Database, command: &AdminCommand) -> anyhow::Result<()> {
+async fn admin(
+    config: &PanelConfig,
+    db: &z_db::Database,
+    stored: &Stored,
+    command: &AdminCommand,
+) -> anyhow::Result<()> {
     match command {
         AdminCommand::Create {
             username,
@@ -82,14 +89,50 @@ async fn admin(db: &z_db::Database, command: &AdminCommand) -> anyhow::Result<()
             }
             Ok(())
         }
+        AdminCommand::Invite {
+            username,
+            pending,
+            host,
+        } => {
+            let admins = match (username, pending) {
+                (Some(name), _) => vec![db
+                    .admin_by_username(name)
+                    .await?
+                    .with_context(|| format!("there is no admin {name:?}"))?],
+                (None, true) => db.pending_admins().await?,
+                (None, false) => anyhow::bail!("give an admin's name, or --pending"),
+            };
+            let scheme = if config.cert.is_some() || stored.certificate_id.is_some() {
+                "https"
+            } else {
+                "http"
+            };
+            for admin in admins {
+                let token = auth::invite::issue(db, admin.id)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.message))?;
+                println!(
+                    "{}  {scheme}://{host}:{}{}",
+                    admin.username,
+                    config.listen.port(),
+                    config.under_base(&format!("/invite/{token}"))
+                );
+            }
+            Ok(())
+        }
         AdminCommand::List => {
             for admin in db.admins().await? {
                 println!(
-                    "#{:<3} {:<24} {}{}{}",
+                    "#{:<3} {:<24} {}{}{}{}",
                     admin.id,
                     admin.username,
                     if admin.is_sudo { "sudo" } else { "role" },
                     if admin.enabled { "" } else { "  (disabled)" },
+                    if admin.pending() {
+                        "  (no password yet)"
+                    } else {
+                        ""
+                    },
                     if admin.totp_secret.is_some() {
                         "  2FA"
                     } else {
@@ -515,6 +558,7 @@ async fn migrate(
         users: !args.no_users,
         hosts: !args.no_hosts,
         templates: !args.no_templates,
+        admins: !args.no_admins,
         usage: !args.no_usage,
         settings: !args.no_settings,
         enable_inbounds: args.enable_inbounds,
@@ -524,6 +568,7 @@ async fn migrate(
             Conflict::Skip
         },
         sync_core: false,
+        refresh_usernames: Default::default(),
     };
     let state = offline(config, db).await;
     let report = crate::migrate::apply::apply(&state, plan, &options)
@@ -540,6 +585,207 @@ async fn migrate(
     );
     println!("start (or restart) the panel to use it");
     Ok(())
+}
+
+fn confirm(question: &str, yes: bool) -> anyhow::Result<()> {
+    use std::io::{BufRead, IsTerminal, Write};
+    if yes {
+        return Ok(());
+    }
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!("this asks a question, and nobody is there to answer: give --yes");
+    }
+    print!("{question} [y/N] ");
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().lock().read_line(&mut answer)?;
+    if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+        Ok(())
+    } else {
+        anyhow::bail!("cancelled; nothing was changed by this step")
+    }
+}
+
+fn show_warnings(warnings: &[crate::migrate::model::Warning]) {
+    for warning in warnings {
+        println!("  [{}] {}: {}", warning.scope, warning.name, warning.detail);
+    }
+}
+
+/// The panel to take over: the only one found, or the one named.
+async fn chosen_panel(
+    root: &std::path::Path,
+    wanted: Option<&str>,
+) -> anyhow::Result<crate::takeover::detect::Detected> {
+    use crate::migrate::model::Kind;
+    let mut found = crate::takeover::detect::detect(root);
+    if let Some(text) = wanted {
+        let kind = Kind::parse(text).context("--panel is 3x-ui, pasarguard or marzban")?;
+        found.retain(|d| d.kind == kind);
+    }
+    let mut detected = match found.len() {
+        0 => anyhow::bail!(
+            "no 3X-UI, PasarGuard or Marzban installed by their own installers was found here"
+        ),
+        1 => found.remove(0),
+        _ => anyhow::bail!(
+            "more than one panel is here ({}): say which with --panel",
+            found
+                .iter()
+                .map(|d| d.kind.label())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    crate::takeover::detect::inspect(root, &mut detected).await;
+    Ok(detected)
+}
+
+async fn takeover(
+    config: &PanelConfig,
+    db: &z_db::Database,
+    command: &TakeoverCommand,
+) -> anyhow::Result<()> {
+    use crate::takeover::run::{self, Context};
+    use crate::takeover::state::{self, Phase};
+
+    let root = crate::takeover::root();
+    let host = crate::takeover::host::from_env();
+    let app = offline(config, db).await;
+    let say = |text: &str| println!("{text}");
+    let cx = Context {
+        root: &root,
+        host: &*host,
+        state: &app,
+        say: &say,
+    };
+    let failed = |error: run::Failure| anyhow::anyhow!("{} ({})", error.message, error.code);
+
+    // The part that changes nothing for anyone.
+    async fn prepare(
+        cx: &Context<'_>,
+        root: &std::path::Path,
+        panel: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let detected = chosen_panel(root, panel).await?;
+        println!("found {}", detected.kind.label());
+        let prepared = run::prepare(cx, detected)
+            .await
+            .map_err(|e| anyhow::anyhow!("{} ({})", e.message, e.code))?;
+        let n = &prepared.counts;
+        println!(
+            "brought over {} inbounds ({} to be switched on), {} users, {} groups, {} templates, {} hosts",
+            n.inbounds,
+            prepared.enable.len(),
+            n.users,
+            n.groups,
+            n.templates,
+            n.hosts
+        );
+        show_warnings(&prepared.warnings);
+        Ok(())
+    }
+
+    let cutover = |yes: bool| {
+        let (cx, failed) = (&cx, &failed);
+        async move {
+            confirm(
+                "The old panel is stopped now and this one takes over: its users are cut off for a few seconds, and their apps reconnect by themselves. Go on?",
+                yes,
+            )?;
+            let switched = run::cutover(cx).await.map_err(failed)?;
+            show_warnings(&switched.warnings);
+            println!(
+                "done: {} users brought up to date, {} new, {} dropped",
+                switched.refreshed, switched.added_users, switched.dropped_users
+            );
+            println!(
+                "the old panel's files stay where they are, stopped, until {} (a week);",
+                crate::notify::events::date(switched.expires_at)
+            );
+            println!("`z-ui takeover rollback` puts the old panel back (with what its users used meanwhile),");
+            println!("`z-ui takeover delete-old` deletes it now");
+            anyhow::Ok(())
+        }
+    };
+
+    match command {
+        TakeoverCommand::Detect => {
+            let found = crate::takeover::detect::detect(&root);
+            if found.is_empty() {
+                println!("no panel that can be replaced was found");
+            }
+            for mut detected in found {
+                crate::takeover::detect::inspect(&root, &mut detected).await;
+                println!("{}", detected.kind.label());
+                if let Some(database) = &detected.database {
+                    println!("  database  {}", database.display());
+                }
+                if let Some(port) = detected.panel_port {
+                    println!("  panel     port {port}");
+                }
+                if let Some(sub) = &detected.sub {
+                    println!("  subscriptions  {}", sub.text());
+                }
+                for path in &detected.remove {
+                    println!("  files     {}", path.display());
+                }
+                if let Some(why) = &detected.unsupported {
+                    println!("  cannot be replaced: {why}");
+                }
+            }
+            Ok(())
+        }
+        TakeoverCommand::Prepare { panel } => {
+            prepare(&cx, &root, panel.as_deref()).await?;
+            println!("the old panel still serves; `z-ui takeover cutover` makes the switch");
+            Ok(())
+        }
+        TakeoverCommand::Cutover { yes } => cutover(*yes).await,
+        TakeoverCommand::Run { panel, yes } => {
+            prepare(&cx, &root, panel.as_deref()).await?;
+            cutover(*yes).await
+        }
+        TakeoverCommand::Status => {
+            match state::load(&config.data_dir) {
+                None => println!("no takeover"),
+                Some(st) => {
+                    println!("{} · {:?}", st.detected.kind.label(), st.phase);
+                    if let (Phase::Switched, Some(at)) = (st.phase, st.expires_at) {
+                        let left = (at - z_db::now()).max(0);
+                        println!(
+                            "the old panel's files are deleted in about {} hours; until then `z-ui takeover rollback` goes back",
+                            left / 3600
+                        );
+                    }
+                }
+            }
+            Ok(())
+        }
+        TakeoverCommand::Rollback { yes } => {
+            confirm(
+                "This panel is stopped and the old one started again, with what its users used here added to its counters. Go on?",
+                *yes,
+            )?;
+            let back = run::rollback(&cx).await.map_err(failed)?;
+            show_warnings(&back.warnings);
+            println!(
+                "the old panel is back; {} bytes of usage of {} users were given back to it; this panel is stopped and will not start by itself",
+                back.given_back.0, back.given_back.1
+            );
+            Ok(())
+        }
+        TakeoverCommand::DeleteOld { yes } => {
+            confirm(
+                "The old panel's files are deleted, and there is no way back after this. Go on?",
+                *yes,
+            )?;
+            let warnings = run::delete_old(&cx).await.map_err(failed)?;
+            show_warnings(&warnings);
+            println!("the old panel's files are gone");
+            Ok(())
+        }
+    }
 }
 
 /// Ask the panel on this machine whether it answers: connect to where it
@@ -814,6 +1060,117 @@ mod tests {
         )
         .await
         .is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_link_for_an_admin_without_a_password_is_made_from_the_server() {
+        let (config, db, dir) = world().await;
+        db.create_admin("ali", z_db::NO_PASSWORD, true)
+            .await
+            .unwrap();
+        db.create_admin("bob", "$argon2id$not-pending", true)
+            .await
+            .unwrap();
+        assert!(
+            run_args(&config, &db, &["admin", "invite"]).await.is_err(),
+            "who for?"
+        );
+        assert!(run_args(&config, &db, &["admin", "invite", "nobody"])
+            .await
+            .is_err());
+        run_args(
+            &config,
+            &db,
+            &[
+                "admin",
+                "invite",
+                "--pending",
+                "--host",
+                "panel.example.com",
+            ],
+        )
+        .await
+        .unwrap();
+        let count = |name: &'static str| {
+            let db = db.clone();
+            async move {
+                let admin = db.admin_by_username(name).await.unwrap().unwrap();
+                sqlx::query("SELECT COUNT(*) FROM admin_invites WHERE admin_id = $1")
+                    .bind(admin.id)
+                    .fetch_one(db.pool())
+                    .await
+                    .map(|row| sqlx::Row::get::<i64, _>(&row, 0))
+                    .unwrap()
+            }
+        };
+        assert_eq!(
+            (count("ali").await, count("bob").await),
+            (1, 0),
+            "only who has none yet"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_panel_on_this_machine_is_replaced_and_given_back_from_the_server() {
+        use crate::migrate::tests::{TempDb, CLASSIC};
+        let (config, db, dir) = world().await;
+        let machine = dir.join("machine");
+        for (path, bytes) in [
+            ("usr/local/x-ui/x-ui", b"binary".to_vec()),
+            ("etc/x-ui/x-ui.db", TempDb::new(CLASSIC).await.bytes()),
+            ("etc/systemd/system/x-ui.service", b"[Service]\n".to_vec()),
+        ] {
+            let target = machine.join(path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(target, bytes).unwrap();
+        }
+        // The machine is a directory, and no service is touched.
+        std::env::set_var("ZUI_PREFIX", &machine);
+        std::env::set_var("ZUI_NO_SYSTEMD", "1");
+        {
+            run_args(&config, &db, &["takeover", "detect"])
+                .await
+                .unwrap();
+            run_args(&config, &db, &["takeover", "prepare"])
+                .await
+                .unwrap();
+            assert_eq!(db.all_users().await.unwrap().len(), 10);
+            assert!(
+                machine.join("usr/local/x-ui/x-ui").exists(),
+                "prepared, not switched"
+            );
+            // Without --yes and without anybody to ask, nothing happens.
+            assert!(run_args(&config, &db, &["takeover", "cutover"])
+                .await
+                .is_err());
+            assert!(machine.join("usr/local/x-ui/x-ui").exists());
+            run_args(&config, &db, &["takeover", "cutover", "--yes"])
+                .await
+                .unwrap();
+            assert!(
+                machine.join("usr/local/x-ui/x-ui").exists(),
+                "the old files stay for a week"
+            );
+            assert!(db.inbounds().await.unwrap().iter().all(|i| i.enabled));
+            run_args(&config, &db, &["takeover", "status"])
+                .await
+                .unwrap();
+            run_args(&config, &db, &["takeover", "rollback", "--yes"])
+                .await
+                .unwrap();
+            assert_eq!(
+                std::fs::read(machine.join("usr/local/x-ui/x-ui")).unwrap(),
+                b"binary"
+            );
+            // Back, then there is nothing to delete or to go back from.
+            assert!(run_args(&config, &db, &["takeover", "delete-old", "--yes"])
+                .await
+                .is_err());
+        }
+        std::env::remove_var("ZUI_PREFIX");
+        std::env::remove_var("ZUI_NO_SYSTEMD");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

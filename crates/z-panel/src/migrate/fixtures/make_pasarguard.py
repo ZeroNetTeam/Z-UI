@@ -97,6 +97,20 @@ with Session(engine) as db:
     db.add_all(inbounds.values())
     db.flush()
 
+    # The three roles PasarGuard's own migration seeds, and two admins.
+    owner_role = m.AdminRole(name="owner", is_owner=True)
+    owner_role.id = 1
+    admin_role = m.AdminRole(name="administrator")
+    admin_role.id = 2
+    operator_role = m.AdminRole(name="operator")
+    operator_role.id = 3
+    db.add_all([owner_role, admin_role, operator_role])
+    db.flush()
+    owner_admin = m.Admin(username="root", hashed_password="$2b$12$notarealhashnotarealhashnotarealhashnotarealhash", role_id=1)
+    shop = m.Admin(username="shop", hashed_password="$2b$12$notarealhashnotarealhashnotarealhashnotarealhash", role_id=3)
+    db.add_all([owner_admin, shop])
+    db.flush()
+
     premium = m.Group(name="Premium", inbounds=[inbounds["VLESS TCP REALITY"], inbounds["Trojan WS"]])
     basic = m.Group(name="Basic", inbounds=[inbounds["VMess WS"], inbounds["Shadowsocks TCP"]])
     retired = m.Group(name="Retired", inbounds=[inbounds["VMess WS"]], is_disabled=True)
@@ -111,6 +125,8 @@ with Session(engine) as db:
 
     def user(name, n, created, **kw):
         expire = kw.pop("expire", None)
+        if name in ("alice", "carol"):
+            kw["admin_id"] = shop.id
         groups = kw.pop("groups", [])
         u = m.User(username=name, proxy_settings=kw.pop("proxy_settings", proxies(n)), **kw)
         u.created_at = created

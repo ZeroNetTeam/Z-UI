@@ -19,7 +19,7 @@ pub struct Source {
 }
 
 /// `\x20`, `?` and the like, made safe to put in a `sqlite://` path.
-fn encode_path(path: &str) -> String {
+pub(crate) fn encode_path(path: &str) -> String {
     let mut out = String::new();
     for b in path.bytes() {
         match b {
@@ -61,6 +61,28 @@ impl Source {
         // A file that is not a database fails here, not at the first table.
         sqlx::query("SELECT 1").fetch_one(&pool).await?;
         Ok(Source { pool, postgres })
+    }
+
+    /// A consistent copy of this SQLite database in a new file, made while
+    /// the panel that owns it may still be writing to it (`VACUUM INTO` reads
+    /// one snapshot, and works on a file opened read only).
+    pub async fn snapshot(&self, destination: &std::path::Path) -> Result<(), DbError> {
+        if self.postgres {
+            return Err(DbError::Backup(
+                "only a SQLite file can be copied this way".into(),
+            ));
+        }
+        if destination.exists() {
+            return Err(DbError::Backup(format!(
+                "{} is already there",
+                destination.display()
+            )));
+        }
+        let literal = destination.to_string_lossy().replace('\'', "''");
+        sqlx::query(AssertSqlSafe(format!("VACUUM INTO '{literal}'")))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn tables(&self) -> Result<HashSet<String>, DbError> {
@@ -396,6 +418,13 @@ mod tests {
             source.query("SELECT 'x', CAST(2 AS TEXT)").await.unwrap(),
             [[Some("x".into()), Some("2".into())]]
         );
+
+        // A copy of it, made without writing to it, is a database of its own.
+        let copy = dir.join("copy.db");
+        source.snapshot(&copy).await.unwrap();
+        let copied = Source::open(copy.to_str().unwrap()).await.unwrap();
+        assert_eq!(copied.rows("things").await.unwrap().len(), 1);
+        assert!(source.snapshot(&copy).await.is_err(), "no copy over a copy");
 
         // Read only: the old panel's file is never changed.
         let write = sqlx::query("DELETE FROM things")
