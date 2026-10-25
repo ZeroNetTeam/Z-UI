@@ -20,6 +20,7 @@
 //! A user that may not connect (disabled, limited, expired) still gets an
 //! answer, with its usage and no configs, so its app shows why.
 
+pub mod apps;
 pub mod endpoint;
 pub mod formats;
 pub mod page;
@@ -669,6 +670,7 @@ pub async fn serve(
                 &sub_url,
                 header_text(headers, "accept-language"),
                 lang,
+                header_text(headers, "user-agent"),
             ),
         ),
     };

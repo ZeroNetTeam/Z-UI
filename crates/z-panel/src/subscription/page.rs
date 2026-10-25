@@ -1,8 +1,8 @@
 //! The page a browser gets at a subscription's address: the user's status,
 //! usage, data limit and time (with the Persian calendar in Persian), the
 //! admin's announcement, the subscription link and every config with copy
-//! buttons and QR codes, and buttons that open the subscription in the common
-//! apps. Dark or light, Persian or English (the browser's language, or
+//! buttons and QR codes, and a list of apps for the visitor's device with a link that adds the
+//! subscription to each. Dark or light, Persian or English (the browser's language, or
 //! `?lang=`). An admin can replace it with their own HTML
 //! ([`super::Settings::template`]).
 //!
@@ -13,6 +13,7 @@
 
 use serde_json::json;
 
+use super::apps::{Platform, APPS};
 use super::endpoint::Endpoint;
 use super::{date, formats, Settings};
 
@@ -80,7 +81,10 @@ struct Words {
     copied: &'static str,
     copy_all: &'static str,
     copied_all: &'static str,
-    open_in: &'static str,
+    apps_title: &'static str,
+    recommended: &'static str,
+    add_sub: &'static str,
+    get: &'static str,
     configs: &'static str,
     none: &'static str,
     qr: &'static str,
@@ -113,7 +117,10 @@ const FA: Words = Words {
     copied: "کپی شد",
     copy_all: "کپی همه‌ی کانفیگ‌ها",
     copied_all: "همه کپی شد",
-    open_in: "باز کردن در",
+    apps_title: "برنامه‌ها",
+    recommended: "پیشنهادی",
+    add_sub: "افزودن اشتراک",
+    get: "دانلود",
     configs: "کانفیگ‌ها",
     none: "کانفیگی برای این اشتراک نیست.",
     qr: "QR",
@@ -158,7 +165,10 @@ const EN: Words = Words {
     copied: "Copied",
     copy_all: "Copy all configs",
     copied_all: "All copied",
-    open_in: "Open in",
+    apps_title: "Apps",
+    recommended: "Recommended",
+    add_sub: "Add subscription",
+    get: "Download",
     configs: "Configs",
     none: "This subscription has no configs.",
     qr: "QR",
@@ -244,6 +254,7 @@ pub fn render(
     sub_url: &str,
     accept_language: &str,
     lang: Option<&str>,
+    user_agent: &str,
 ) -> String {
     let links: Vec<(String, String)> = endpoints
         .iter()
@@ -356,31 +367,58 @@ pub fn render(
     let title = escape(&settings.title);
     let url = escape(sub_url);
     let encoded = percent(sub_url);
-    let apps = [
-        (
-            "Hiddify",
-            format!("hiddify://import/{sub_url}#{}", percent(&settings.title)),
-        ),
-        (
-            "sing-box",
-            format!(
-                "sing-box://import-remote-profile?url={encoded}#{}",
-                percent(&settings.title)
-            ),
-        ),
-        (
-            "Clash",
-            format!(
-                "clash://install-config?url={encoded}&name={}",
-                percent(&settings.title)
-            ),
-        ),
-        ("Streisand", format!("streisand://import/{sub_url}")),
-        ("Happ", format!("happ://add/{sub_url}")),
-    ];
-    let buttons: String = apps
+    let title_encoded = percent(&settings.title);
+    let detected = Platform::of(user_agent);
+    let tabs: String = Platform::ALL
         .iter()
-        .map(|(name, href)| format!("<a class=\"app\" href=\"{}\">{name}</a>", escape(href)))
+        .map(|platform| {
+            format!(
+                "<button class=\"tab\" type=\"button\" data-tab=\"{}\">{}</button>",
+                platform.key(),
+                platform.name()
+            )
+        })
+        .collect();
+    let app_cards: String = APPS
+        .iter()
+        .map(|app| {
+            let platforms = app
+                .platforms
+                .iter()
+                .map(|p| p.key())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let badge = if app.recommended {
+                format!("<small class=\"badge rec\">{}</small>", w.recommended)
+            } else {
+                String::new()
+            };
+            let add = app.import.map_or_else(String::new, |import| {
+                format!(
+                    "<a class=\"app primary\" href=\"{}\">{}</a>",
+                    escape(&import(sub_url, &encoded, &title_encoded)),
+                    w.add_sub
+                )
+            });
+            let get: String = app
+                .get
+                .iter()
+                .map(|(label, target)| {
+                    format!(
+                        "<a class=\"app\" href=\"{}\" rel=\"noopener noreferrer\">{} · {}</a>",
+                        escape(target),
+                        w.get,
+                        escape(label)
+                    )
+                })
+                .collect();
+            format!(
+                "<div class=\"app-card\" data-platforms=\"{platforms}\"><div class=\"app-head\"><strong>{}</strong>{badge}</div>\
+                 <p class=\"muted\">{}</p><div class=\"apps\">{add}{get}</div></div>",
+                app.name,
+                if fa { app.about_fa } else { app.about_en }
+            )
+        })
         .collect();
 
     let mut templates = String::new();
@@ -479,8 +517,10 @@ pub fn render(
             "sub_qr_template",
             format!("<template id=\"qr-sub\">{}</template>", qr(sub_url)),
         ),
-        ("open_in", w.open_in.to_string()),
-        ("buttons", buttons),
+        ("apps_title", w.apps_title.to_string()),
+        ("detected", detected.map_or("", |p| p.key()).to_string()),
+        ("tabs", tabs),
+        ("app_cards", app_cards),
         ("configs_title", w.configs.to_string()),
         ("configs", configs),
         ("copy_all", copy_all),
@@ -567,6 +607,15 @@ button,.app{background:var(--gold);color:var(--on-gold);border:0;border-radius:1
 button.ghost,.app{background:var(--soft);color:var(--text);border:1px solid var(--line);font-weight:500}
 button.wide{width:100%;margin-top:12px;padding:10px}
 .apps{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.tab{background:var(--soft);color:var(--text);border:1px solid var(--line);font-weight:500;border-radius:99px;padding:5px 14px}
+.tab.on{background:var(--gold);color:var(--on-gold);border-color:var(--gold);font-weight:700}
+.app-card{border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-top:10px;background:var(--soft)}
+.app-card[hidden]{display:none}
+.app-card p{margin:2px 0 0;font-size:13px}
+.app-head{display:flex;align-items:center;gap:8px}
+.badge.rec{color:var(--gold);border-color:var(--gold);text-transform:none}
+.app.primary{background:var(--gold);color:var(--on-gold);border-color:var(--gold);font-weight:700}
 .muted{color:var(--muted)}
 ul{list-style:none;margin:10px 0 0;padding:0}
 li{border-top:1px solid var(--line);padding:10px 0}
@@ -600,8 +649,11 @@ li:first-child{border-top:0}
 <section class="card">
 <div class="row"><strong>{subscription}</strong><span class="acts"><button class="ghost" data-qr="qr-sub" data-name="{subscription}">{qr_word}</button><button data-copy="{url}">{copy}</button></span></div>
 <div class="url">{url}</div>
-<div class="muted" style="margin-top:12px">{open_in}</div>
-<div class="apps">{buttons}</div>
+</section>
+<section class="card" id="apps" data-detected="{detected}">
+<strong>{apps_title}</strong>
+<div class="tabs" role="tablist">{tabs}</div>
+<div>{app_cards}</div>
 </section>
 <section class="card">
 <strong>{configs_title}</strong>
@@ -659,6 +711,20 @@ li:first-child{border-top:0}
     if (target === popup || target.closest("#popup-close")) closePopup();
   });
   document.addEventListener("keydown", function (event) { if (event.key === "Escape") closePopup(); });
+  var apps = document.getElementById("apps");
+  function show(platform) {
+    Array.prototype.forEach.call(apps.querySelectorAll(".tab"), function (tab) {
+      tab.classList.toggle("on", tab.getAttribute("data-tab") === platform);
+    });
+    Array.prototype.forEach.call(apps.querySelectorAll(".app-card"), function (card) {
+      card.hidden = (" " + card.getAttribute("data-platforms") + " ").indexOf(" " + platform + " ") < 0;
+    });
+  }
+  apps.addEventListener("click", function (event) {
+    var tab = event.target.closest(".tab");
+    if (tab) show(tab.getAttribute("data-tab"));
+  });
+  show(apps.getAttribute("data-detected") || "android");
   document.getElementById("theme").addEventListener("click", function () {
     var next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", next);
@@ -754,6 +820,7 @@ mod tests {
             "https://sub.example.org/sub/tok",
             "en-US",
             None,
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/126 Mobile",
         );
         assert!(!page.contains("<img src=x"), "a user name is text");
         assert!(!page.contains("<script>alert"), "a remark is text");
@@ -777,6 +844,45 @@ mod tests {
         assert!(page.contains("starts over every month") && page.contains("5 days left"));
         assert!(page.contains("<small class=\"badge\">vless</small>"));
         assert!(page.contains("lang=\"en\" dir=\"ltr\""));
+        // The apps: the visitor's device is the tab to start on, and every app
+        // that can add a subscription has a link that does.
+        assert!(page.contains("id=\"apps\" data-detected=\"android\""));
+        assert_eq!(page.matches("class=\"tab\"").count(), 5);
+        assert!(page.contains("href=\"hiddify://import/https://sub.example.org/sub/tok#"));
+        assert!(page.contains(
+            "href=\"v2rayng://install-sub?url=https%3A%2F%2Fsub%2Eexample%2Eorg%2Fsub%2Ftok#"
+        ));
+        assert!(
+            page.contains("data-platforms=\"windows\""),
+            "v2rayN is Windows only"
+        );
+        assert!(
+            page.contains("Download · GitHub"),
+            "an app with a release page links to it"
+        );
+    }
+
+    #[test]
+    fn the_apps_follow_the_language_and_an_unknown_device_starts_on_android() {
+        let settings = Settings::default();
+        let render_in = |accept: &str, agent: &str| {
+            render(
+                &settings,
+                &user("sara", "active"),
+                &[],
+                "https://s/sub/t",
+                accept,
+                None,
+                agent,
+            )
+        };
+        let fa = render_in(
+            "fa",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)",
+        );
+        assert!(fa.contains("data-detected=\"ios\""));
+        assert!(fa.contains("افزودن اشتراک") && fa.contains("پیشنهادی"));
+        assert!(render_in("en", "curl/8").contains("data-detected=\"\""));
     }
 
     #[test]
@@ -784,7 +890,7 @@ mod tests {
         let settings = Settings::default();
         let user = user("sara", "on_hold");
         let page = |accept: &str, lang: Option<&str>| {
-            render(&settings, &user, &[], "https://s/sub/t", accept, lang)
+            render(&settings, &user, &[], "https://s/sub/t", accept, lang, "")
         };
         let fa = page("fa-IR,fa;q=0.9", None);
         assert!(fa.contains("lang=\"fa\" dir=\"rtl\""));
@@ -801,7 +907,7 @@ mod tests {
         let mut dated = user.clone();
         dated.status = "active".into();
         dated.expire_at = Some(1_792_886_400);
-        let fa = render(&settings, &dated, &[], "https://s/sub/t", "fa", None);
+        let fa = render(&settings, &dated, &[], "https://s/sub/t", "fa", None, "");
         assert!(fa.contains("۱۴۰۵/۰۸/۰۳"), "{fa}");
         assert!(page("en", None).contains("Waiting for the first connection"));
     }
@@ -820,6 +926,7 @@ mod tests {
             "https://s/sub/t",
             "",
             None,
+            "",
         );
         assert!(
             page.contains("\"announce\":\"hello \\u003c/script>\""),
