@@ -90,6 +90,34 @@ pub enum Event {
     TakeoverCleaned {
         kept: Option<String>,
     },
+    /// The server is over a limit: `what` is `cpu`, `memory`, `disk` or
+    /// `temperature`.
+    ServerHigh {
+        what: String,
+        value: f64,
+        limit: f64,
+    },
+    /// ... and is under it again.
+    ServerNormal {
+        what: String,
+    },
+    /// The traffic the panel has carried grew by another step.
+    TrafficStep {
+        total: u64,
+        step: u64,
+    },
+    /// The machine started again.
+    ServerRebooted,
+    /// The panel lightened the load by itself.
+    ReliefStarted {
+        paused: usize,
+        throttled: usize,
+        reason: String,
+    },
+    ReliefEnded {
+        resumed: usize,
+        released: usize,
+    },
 }
 
 /// A message, before it is dressed for a channel: a title and some
@@ -107,6 +135,21 @@ pub struct Audience {
     pub admin: Option<i64>,
     /// A user it is about, who may be told in the bot.
     pub user: Option<i64>,
+}
+
+/// What a server figure is called.
+fn resource(what: &str, fa: bool) -> String {
+    match (what, fa) {
+        ("cpu", true) => "پردازنده",
+        ("cpu", false) => "Processor",
+        ("memory", true) => "حافظه",
+        ("memory", false) => "Memory",
+        ("disk", true) => "دیسک",
+        ("disk", false) => "Disk",
+        (_, true) => "دما",
+        (_, false) => "Temperature",
+    }
+    .to_string()
 }
 
 impl Event {
@@ -131,6 +174,12 @@ impl Event {
             Event::UpdateAvailable { .. } => "update.available",
             Event::TakeoverExpiring { .. } => "takeover.expiring",
             Event::TakeoverCleaned { .. } => "takeover.cleaned",
+            Event::ServerHigh { .. } => "server.high",
+            Event::ServerNormal { .. } => "server.normal",
+            Event::TrafficStep { .. } => "traffic.step",
+            Event::ServerRebooted => "server.rebooted",
+            Event::ReliefStarted { .. } => "relief.started",
+            Event::ReliefEnded { .. } => "relief.ended",
         }
     }
 
@@ -152,6 +201,16 @@ impl Event {
             Event::UpdateAvailable { .. } => events.update,
             // Rare, and about something that cannot be undone: always told.
             Event::TakeoverExpiring { .. } | Event::TakeoverCleaned { .. } => true,
+            Event::ServerHigh { what, .. } | Event::ServerNormal { what } => match what.as_str() {
+                "cpu" => events.server_cpu,
+                "memory" => events.server_memory,
+                "disk" => events.server_disk,
+                _ => events.server_temperature,
+            },
+            Event::TrafficStep { .. } => events.traffic,
+            Event::ServerRebooted => events.reboot,
+            // The admin switched relief on: what it did is always told.
+            Event::ReliefStarted { .. } | Event::ReliefEnded { .. } => true,
         }
     }
 
@@ -234,6 +293,20 @@ impl Event {
             Event::TakeoverExpiring { hours } => json!({"hours": hours}),
             Event::TakeoverCleaned { kept } => {
                 json!({"deleted": kept.is_none(), "kept_because": kept})
+            }
+            Event::ServerHigh { what, value, limit } => {
+                json!({"what": what, "value": value, "limit": limit})
+            }
+            Event::ServerNormal { what } => json!({"what": what}),
+            Event::TrafficStep { total, step } => json!({"total": total, "step": step}),
+            Event::ServerRebooted => json!({}),
+            Event::ReliefStarted {
+                paused,
+                throttled,
+                reason,
+            } => json!({"paused": paused, "throttled": throttled, "reason": reason}),
+            Event::ReliefEnded { resumed, released } => {
+                json!({"resumed": resumed, "released": released})
             }
         }
     }
@@ -431,6 +504,60 @@ impl Event {
                             "until then \"I made a mistake\" brings the old panel back; after that there is no way back",
                         ),
                     ),
+                ],
+            },
+            Event::ServerHigh { what, value, limit } => {
+                let unit = if what == "temperature" { "°C" } else { "%" };
+                Message {
+                    title: pick("🔥 فشار روی سرور", "🔥 The server is under strain"),
+                    fields: vec![
+                        field("چه چیزی", "What", resource(what, fa)),
+                        field("الان", "Now", format!("{value:.0}{unit}")),
+                        field("حد", "Limit", format!("{limit:.0}{unit}")),
+                    ],
+                }
+            }
+            Event::ServerNormal { what } => Message {
+                title: pick(
+                    &format!("✅ {} به حالت عادی برگشت", resource(what, true)),
+                    &format!("✅ {} is back to normal", resource(what, false)),
+                ),
+                fields: vec![],
+            },
+            Event::TrafficStep { total, step } => Message {
+                title: pick("📈 ترافیک پنل رشد کرد", "📈 The panel's traffic grew"),
+                fields: vec![
+                    field("کل ترافیک", "Total so far", bytes(*total as i64)),
+                    field("هر بار پس از", "Told every", bytes(*step as i64)),
+                ],
+            },
+            Event::ServerRebooted => Message {
+                title: pick("🔄 سرور دوباره راه‌اندازی شد", "🔄 The server was restarted"),
+                fields: vec![],
+            },
+            Event::ReliefStarted {
+                paused,
+                throttled,
+                reason,
+            } => Message {
+                title: pick(
+                    "🛡️ پنل برای سبک کردن بار وارد عمل شد",
+                    "🛡️ The panel stepped in to lighten the load",
+                ),
+                fields: vec![
+                    field("دلیل", "Why", reason.clone()),
+                    field("کاربر بیکار که برای دقایقی بیرون رفت", "Idle users sent out for a while", paused.to_string()),
+                    field("کاربر پرمصرف که کند شد", "Busiest users slowed", throttled.to_string()),
+                ],
+            },
+            Event::ReliefEnded { resumed, released } => Message {
+                title: pick(
+                    "🛡️ بار پایین آمد؛ محدودیت‌ها برداشته شد",
+                    "🛡️ The load is down; the limits are lifted",
+                ),
+                fields: vec![
+                    field("کاربر برگشت", "Users back", resumed.to_string()),
+                    field("کاربر آزاد شد", "Users no longer slowed", released.to_string()),
                 ],
             },
             Event::TakeoverCleaned { kept } => match kept {
@@ -635,6 +762,28 @@ mod tests {
             },
             Event::TakeoverExpiring { hours: 20 },
             Event::TakeoverCleaned { kept: None },
+            Event::ServerHigh {
+                what: "cpu".into(),
+                value: 94.0,
+                limit: 90.0,
+            },
+            Event::ServerNormal {
+                what: "temperature".into(),
+            },
+            Event::TrafficStep {
+                total: 3 << 40,
+                step: 1 << 40,
+            },
+            Event::ServerRebooted,
+            Event::ReliefStarted {
+                paused: 12,
+                throttled: 3,
+                reason: "processor 94%".into(),
+            },
+            Event::ReliefEnded {
+                resumed: 12,
+                released: 3,
+            },
         ];
         let mut kinds: Vec<&str> = events.iter().map(Event::kind).collect();
         kinds.sort_unstable();

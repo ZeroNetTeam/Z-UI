@@ -49,6 +49,12 @@ impl Monitor {
         *self.latest.write().unwrap_or_else(|p| p.into_inner()) = Some(snapshot);
     }
 
+    /// Make `snapshot` the latest reading, for a test.
+    #[cfg(test)]
+    pub fn inject(&self, snapshot: Snapshot) {
+        *self.latest.write().unwrap_or_else(|p| p.into_inner()) = Some(snapshot);
+    }
+
     pub fn latest(&self) -> Option<Snapshot> {
         self.latest
             .read()

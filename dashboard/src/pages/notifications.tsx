@@ -109,6 +109,9 @@ export function NotificationsPage() {
   }
   const set = (patch: Partial<NotifyForm>) => setForm((current) => (current ? { ...current, ...patch } : current));
   const setEvent = (patch: Partial<NotifyForm["events"]>) => set({ events: { ...form.events, ...patch } });
+  const setRelief = (patch: Partial<NotifyForm["relief"]>) => set({ relief: { ...form.relief, ...patch } });
+  /** A number field kept between `min` and `max`. */
+  const bounded = (min: number, max: number, text: string) => Math.min(max, Math.max(min, Math.round(Number(text) || min)));
   const dirty = isDirty(form, view);
   const bad = parseChatIds(form.chatIds).bad;
   const status = stored.data.status;
@@ -293,6 +296,54 @@ export function NotificationsPage() {
                 dir="ltr"
                 hint={t("notify.expiringDaysHint")}
               />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("notify.serverTitle")}</CardTitle>
+            <CardDescription>{t("notify.serverBody")}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SwitchField label={t("notify.cpuOn")} checked={form.events.server_cpu} onCheckedChange={(server_cpu) => setEvent({ server_cpu })} />
+              <div className="grid grid-cols-2 gap-3">
+                <Field label={t("notify.overPercent")} type="number" min={50} max={100} value={String(form.events.cpu_percent)} onChange={(e) => setEvent({ cpu_percent: bounded(50, 100, e.target.value) })} dir="ltr" />
+                <Field label={t("notify.forMinutes")} type="number" min={1} max={60} value={String(form.events.cpu_minutes)} onChange={(e) => setEvent({ cpu_minutes: bounded(1, 60, e.target.value) })} dir="ltr" />
+              </div>
+              <SwitchField label={t("notify.memoryOn")} checked={form.events.server_memory} onCheckedChange={(server_memory) => setEvent({ server_memory })} />
+              <Field label={t("notify.overPercent")} type="number" min={50} max={100} value={String(form.events.memory_percent)} onChange={(e) => setEvent({ memory_percent: bounded(50, 100, e.target.value) })} dir="ltr" />
+              <SwitchField label={t("notify.diskOn")} checked={form.events.server_disk} onCheckedChange={(server_disk) => setEvent({ server_disk })} />
+              <Field label={t("notify.overPercent")} type="number" min={50} max={100} value={String(form.events.disk_percent)} onChange={(e) => setEvent({ disk_percent: bounded(50, 100, e.target.value) })} dir="ltr" />
+              <SwitchField label={t("notify.tempOn")} hint={t("notify.tempHint")} checked={form.events.server_temperature} onCheckedChange={(server_temperature) => setEvent({ server_temperature })} />
+              <Field label={t("notify.overCelsius")} type="number" min={50} max={120} value={String(form.events.temperature_celsius)} onChange={(e) => setEvent({ temperature_celsius: bounded(50, 120, e.target.value) })} dir="ltr" />
+              <SwitchField label={t("notify.trafficOn")} hint={t("notify.trafficHint")} checked={form.events.traffic} onCheckedChange={(traffic) => setEvent({ traffic })} />
+              <Field label={t("notify.trafficStep")} type="number" min={1} max={1000000} value={String(form.events.traffic_step_gb)} onChange={(e) => setEvent({ traffic_step_gb: bounded(1, 1_000_000, e.target.value) })} dir="ltr" />
+              <SwitchField label={t("notify.rebootOn")} checked={form.events.reboot} onCheckedChange={(reboot) => setEvent({ reboot })} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("notify.reliefTitle")}</CardTitle>
+            <CardDescription>{t("notify.reliefBody")}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <SwitchField label={t("notify.reliefOn")} hint={t("notify.reliefOnHint")} checked={form.relief.enabled} onCheckedChange={(enabled) => setRelief({ enabled })} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SwitchField label={t("notify.reliefPause")} hint={t("notify.reliefPauseHint")} checked={form.relief.pause_idle} disabled={!form.relief.enabled} onCheckedChange={(pause_idle) => setRelief({ pause_idle })} />
+              <div className="grid grid-cols-2 gap-3">
+                <Field label={t("notify.idleMinutes")} type="number" min={1} max={240} value={String(form.relief.idle_minutes)} onChange={(e) => setRelief({ idle_minutes: bounded(1, 240, e.target.value) })} dir="ltr" disabled={!form.relief.enabled} />
+                <Field label={t("notify.pauseMinutes")} type="number" min={1} max={240} value={String(form.relief.pause_minutes)} onChange={(e) => setRelief({ pause_minutes: bounded(1, 240, e.target.value) })} dir="ltr" disabled={!form.relief.enabled} />
+              </div>
+              <SwitchField label={t("notify.reliefThrottle")} hint={t("notify.reliefThrottleHint")} checked={form.relief.throttle_busiest} disabled={!form.relief.enabled} onCheckedChange={(throttle_busiest) => setRelief({ throttle_busiest })} />
+              <div className="grid grid-cols-2 gap-3">
+                <Field label={t("notify.busiestCount")} type="number" min={1} max={1000} value={String(form.relief.busiest_count)} onChange={(e) => setRelief({ busiest_count: bounded(1, 1000, e.target.value) })} dir="ltr" disabled={!form.relief.enabled} />
+                <Field label={t("notify.throttleMbit")} type="number" min={1} max={1000} value={String(form.relief.throttle_mbit)} onChange={(e) => setRelief({ throttle_mbit: bounded(1, 1000, e.target.value) })} dir="ltr" disabled={!form.relief.enabled} />
+              </div>
+              <Field label={t("notify.reliefMax")} type="number" min={1} max={720} value={String(form.relief.max_minutes)} onChange={(e) => setRelief({ max_minutes: bounded(1, 720, e.target.value) })} dir="ltr" disabled={!form.relief.enabled} hint={t("notify.reliefMaxHint")} />
             </div>
           </CardContent>
         </Card>

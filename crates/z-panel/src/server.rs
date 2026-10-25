@@ -67,6 +67,8 @@ struct Inner {
     host: std::sync::RwLock<Arc<dyn crate::takeover::host::Host>>,
     /// Where the machine's files are, for a takeover (`/` but in tests).
     takeover_root: std::sync::RwLock<std::path::PathBuf>,
+    /// What lightens the load of an overloaded server ([`crate::relief`]).
+    relief: Mutex<crate::relief::Relief>,
 }
 
 impl AppState {
@@ -103,6 +105,7 @@ impl AppState {
                 import_lock: tokio::sync::Mutex::new(()),
                 host: std::sync::RwLock::new(crate::takeover::host::from_env()),
                 takeover_root: std::sync::RwLock::new(crate::takeover::root()),
+                relief: Mutex::new(Default::default()),
             }),
         }
     }
@@ -174,6 +177,10 @@ impl AppState {
 
     pub fn host(&self) -> Arc<dyn crate::takeover::host::Host> {
         self.inner.host.read().expect("host lock").clone()
+    }
+
+    pub fn relief(&self) -> std::sync::MutexGuard<'_, crate::relief::Relief> {
+        self.inner.relief.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     pub fn takeover_root(&self) -> std::path::PathBuf {

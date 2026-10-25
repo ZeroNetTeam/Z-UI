@@ -26,6 +26,7 @@ pub struct Settings {
     pub webhook: Webhook,
     pub events: Events,
     pub backup: Backup,
+    pub relief: Relief,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -86,6 +87,43 @@ pub struct Events {
     pub certificate: bool,
     /// A newer version of the panel is published.
     pub update: bool,
+    /// The server's processor over `cpu_percent` for `cpu_minutes` in a row.
+    pub server_cpu: bool,
+    pub cpu_percent: u8,
+    pub cpu_minutes: u32,
+    /// Its memory, and its disk, over a percent.
+    pub server_memory: bool,
+    pub memory_percent: u8,
+    pub server_disk: bool,
+    pub disk_percent: u8,
+    /// Its hottest sensor over a number of degrees (where it has one).
+    pub server_temperature: bool,
+    pub temperature_celsius: u8,
+    /// Each time the traffic the panel has carried grows by `traffic_step_gb`.
+    pub traffic: bool,
+    pub traffic_step_gb: u32,
+    /// The machine starting again.
+    pub reboot: bool,
+}
+
+/// What the panel does by itself to lighten the load when the server's
+/// processor or temperature stays over the limits of [`Events`]: the idle
+/// users leave for a few minutes, and the busiest ones are slowed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default)]
+pub struct Relief {
+    pub enabled: bool,
+    /// Users connected but with no traffic for `idle_minutes` leave the core
+    /// for `pause_minutes`, then come back by themselves.
+    pub pause_idle: bool,
+    pub idle_minutes: u32,
+    pub pause_minutes: u32,
+    /// The `busiest_count` users that carried the most are held to
+    /// `throttle_mbit` Mbit/s until the load is down (or `max_minutes`).
+    pub throttle_busiest: bool,
+    pub busiest_count: u32,
+    pub throttle_mbit: u32,
+    pub max_minutes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -113,6 +151,7 @@ impl Default for Settings {
             webhook: Webhook::default(),
             events: Events::default(),
             backup: Backup::default(),
+            relief: Relief::default(),
         }
     }
 }
@@ -145,6 +184,33 @@ impl Default for Events {
             backup: true,
             certificate: true,
             update: true,
+            server_cpu: true,
+            cpu_percent: 90,
+            cpu_minutes: 3,
+            server_memory: true,
+            memory_percent: 90,
+            server_disk: true,
+            disk_percent: 90,
+            server_temperature: true,
+            temperature_celsius: 85,
+            traffic: true,
+            traffic_step_gb: 1024,
+            reboot: true,
+        }
+    }
+}
+
+impl Default for Relief {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            pause_idle: true,
+            idle_minutes: 5,
+            pause_minutes: 5,
+            throttle_busiest: true,
+            busiest_count: 10,
+            throttle_mbit: 5,
+            max_minutes: 30,
         }
     }
 }
@@ -264,6 +330,32 @@ impl Settings {
         if !(1..=60).contains(&self.events.expiring_days) {
             return Err("the expiry warning is 1 to 60 days".into());
         }
+        let e = &self.events;
+        if !(50..=100).contains(&e.cpu_percent)
+            || !(50..=100).contains(&e.memory_percent)
+            || !(50..=100).contains(&e.disk_percent)
+        {
+            return Err("a server warning is a percent from 50 to 100".into());
+        }
+        if !(1..=60).contains(&e.cpu_minutes) {
+            return Err("the processor must stay over its limit for 1 to 60 minutes".into());
+        }
+        if !(50..=120).contains(&e.temperature_celsius) {
+            return Err("the temperature warning is 50 to 120 degrees".into());
+        }
+        if !(1..=1_000_000).contains(&e.traffic_step_gb) {
+            return Err("tell the traffic every 1 to 1000000 GB".into());
+        }
+        let r = &self.relief;
+        if !(1..=240).contains(&r.idle_minutes) || !(1..=240).contains(&r.pause_minutes) {
+            return Err("idle and pause times are 1 to 240 minutes".into());
+        }
+        if !(1..=1000).contains(&r.busiest_count) || !(1..=1000).contains(&r.throttle_mbit) {
+            return Err("the busiest users are 1 to 1000, and the speed 1 to 1000 Mbit/s".into());
+        }
+        if !(1..=720).contains(&r.max_minutes) {
+            return Err("slowing lasts 1 to 720 minutes at most".into());
+        }
         if !(1..=720).contains(&self.backup.interval_hours) {
             return Err("a backup every 1 to 720 hours".into());
         }
@@ -287,6 +379,7 @@ pub struct View {
     pub webhook: WebhookView,
     pub events: Events,
     pub backup: BackupView,
+    pub relief: Relief,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -353,6 +446,7 @@ impl Settings {
                 include_usage: self.backup.include_usage,
                 passphrase_set: !self.backup.passphrase.is_empty(),
             },
+            relief: self.relief.clone(),
         }
     }
 }

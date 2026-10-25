@@ -144,24 +144,198 @@ pub async fn core(state: &AppState, watch: &mut CoreWatch) -> Result<(), z_db::D
     Ok(())
 }
 
+/// One figure of the server over its limit, for some looks in a row.
+#[derive(Debug, Default)]
+pub struct Strain {
+    over: u32,
+    calm: u32,
+    told: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Change {
+    Nothing,
+    /// Over the limit for long enough: tell.
+    High,
+    /// Well under it again, after having been told: tell.
+    Normal,
+}
+
+impl Strain {
+    /// Take one look at `value` against `limit`. It takes `needed` looks over
+    /// the limit in a row to be high, and two looks `margin` under it to be
+    /// normal again, so a figure hovering at the limit is not told over and over.
+    pub fn look(&mut self, value: Option<f64>, limit: f64, margin: f64, needed: u32) -> Change {
+        let Some(value) = value else {
+            *self = Strain::default();
+            return Change::Nothing;
+        };
+        if value >= limit {
+            self.calm = 0;
+            self.over += 1;
+            if self.over >= needed && !self.told {
+                self.told = true;
+                return Change::High;
+            }
+        } else {
+            if !self.told {
+                self.over = 0;
+            }
+            if value <= limit - margin {
+                self.calm += 1;
+                if self.told && self.calm >= 2 {
+                    *self = Strain::default();
+                    return Change::Normal;
+                }
+            }
+        }
+        Change::Nothing
+    }
+}
+
+/// What is known of the server between passes.
+#[derive(Debug, Default)]
+pub struct ServerWatch {
+    cpu: Strain,
+    memory: Strain,
+    disk: Strain,
+    temperature: Strain,
+}
+
+/// Look at the processor, memory, disk and temperature of the server.
+pub fn server(state: &AppState, watch: &mut ServerWatch) {
+    let events = state.notify_settings().events;
+    let Some(now) = state.monitor().latest() else {
+        return;
+    };
+    let percent = |used: Option<u64>, total: Option<u64>| match (used, total) {
+        (Some(used), Some(total)) if total > 0 => Some(used as f64 / total as f64 * 100.0),
+        _ => None,
+    };
+    let looks = [
+        (
+            "cpu",
+            &mut watch.cpu,
+            now.cpu.map(f64::from),
+            f64::from(events.cpu_percent),
+            5.0,
+            events.cpu_minutes.max(1),
+        ),
+        (
+            "memory",
+            &mut watch.memory,
+            percent(now.mem_used, now.mem_total),
+            f64::from(events.memory_percent),
+            5.0,
+            3,
+        ),
+        (
+            "disk",
+            &mut watch.disk,
+            percent(now.disk_used, now.disk_total),
+            f64::from(events.disk_percent),
+            3.0,
+            2,
+        ),
+        (
+            "temperature",
+            &mut watch.temperature,
+            now.temperature,
+            f64::from(events.temperature_celsius),
+            5.0,
+            2,
+        ),
+    ];
+    for (what, strain, value, limit, margin, needed) in looks {
+        match strain.look(value, limit, margin, needed) {
+            Change::High => state.notify(Event::ServerHigh {
+                what: what.into(),
+                value: value.unwrap_or(limit),
+                limit,
+            }),
+            Change::Normal => state.notify(Event::ServerNormal { what: what.into() }),
+            Change::Nothing => {}
+        }
+    }
+}
+
+const TRAFFIC_STEP: &str = "notify.traffic_step";
+
+/// Tell each time the traffic the panel has carried passes another multiple
+/// of the step. What was told is kept with the step, so changing the step
+/// (or the first look) only learns where things stand.
+pub async fn traffic(state: &AppState) -> Result<(), z_db::DbError> {
+    let db = state.db();
+    let step = u64::from(state.notify_settings().events.traffic_step_gb.max(1)) << 30;
+    let total = u64::try_from(db.lifetime_total(None).await?).unwrap_or(0);
+    let multiple = total / step;
+    let stored = db.setting(TRAFFIC_STEP).await?.and_then(|text| {
+        let (k, s) = text.split_once(':')?;
+        Some((k.parse::<u64>().ok()?, s.parse::<u64>().ok()?))
+    });
+    match stored {
+        Some((last, was)) if was == step => {
+            if multiple > last {
+                state.notify(Event::TrafficStep { total, step });
+                db.set_setting(TRAFFIC_STEP, &format!("{multiple}:{step}"))
+                    .await?;
+            }
+        }
+        _ => {
+            db.set_setting(TRAFFIC_STEP, &format!("{multiple}:{step}"))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+const BOOT_ID: &str = "server.boot_id";
+
+/// Tell when the machine has started again since the panel last looked.
+/// `now` is this boot's id; the first look only remembers it.
+pub async fn rebooted(state: &AppState, now: Option<String>) -> Result<(), z_db::DbError> {
+    let Some(now) = now else { return Ok(()) };
+    let before = state.db().setting(BOOT_ID).await?;
+    if before.as_deref() != Some(now.as_str()) {
+        state.db().set_setting(BOOT_ID, &now).await?;
+        if before.is_some() {
+            state.notify(Event::ServerRebooted);
+        }
+    }
+    Ok(())
+}
+
 /// One look at everything.
-pub async fn pass(state: &AppState, core_watch: &mut CoreWatch, now: i64) {
+pub async fn pass(
+    state: &AppState,
+    core_watch: &mut CoreWatch,
+    server_watch: &mut ServerWatch,
+    now: i64,
+) {
     if let Err(error) = users(state, now).await {
         tracing::warn!(%error, "looking at the users for news failed");
     }
     if let Err(error) = core(state, core_watch).await {
         tracing::warn!(%error, "looking at the core for news failed");
     }
+    server(state, server_watch);
+    if let Err(error) = traffic(state).await {
+        tracing::warn!(%error, "looking at the traffic for news failed");
+    }
 }
 
 pub fn spawn(state: AppState) {
     tokio::spawn(async move {
+        if let Err(error) = rebooted(&state, crate::monitor::system::boot_id()).await {
+            tracing::warn!(%error, "looking for a reboot failed");
+        }
         let mut ticker = tokio::time::interval(INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut core_watch = CoreWatch::default();
+        let mut server_watch = ServerWatch::default();
         loop {
             ticker.tick().await;
-            pass(&state, &mut core_watch, z_db::now()).await;
+            pass(&state, &mut core_watch, &mut server_watch, z_db::now()).await;
         }
     });
 }
@@ -302,6 +476,148 @@ mod tests {
             .iter()
             .map(|r| r.json()["text"].as_str().unwrap_or_default().to_string())
             .collect()
+    }
+
+    #[test]
+    fn a_figure_is_high_after_enough_looks_over_and_normal_again_well_under() {
+        let mut strain = Strain::default();
+        let mut look = |value: f64| strain.look(Some(value), 90.0, 5.0, 3);
+        assert_eq!(look(95.0), Change::Nothing);
+        assert_eq!(look(95.0), Change::Nothing);
+        assert_eq!(look(60.0), Change::Nothing, "a dip starts the count again");
+        assert_eq!(look(95.0), Change::Nothing);
+        assert_eq!(look(96.0), Change::Nothing);
+        assert_eq!(look(97.0), Change::High, "three in a row");
+        assert_eq!(look(99.0), Change::Nothing, "told once");
+        // Hovering just under the limit is not normal, and does not tell again either.
+        assert_eq!(look(88.0), Change::Nothing);
+        assert_eq!(look(92.0), Change::Nothing);
+        assert_eq!(
+            look(80.0),
+            Change::Nothing,
+            "one look well under is not enough"
+        );
+        assert_eq!(look(81.0), Change::Normal);
+        assert_eq!(look(50.0), Change::Nothing);
+        // A sensor that is not there says nothing, and forgets.
+        let mut none = Strain::default();
+        assert_eq!(none.look(None, 85.0, 5.0, 2), Change::Nothing);
+    }
+
+    #[tokio::test]
+    async fn the_server_is_told_when_it_stays_over_its_limits_and_when_it_is_well_again() {
+        let telegram = ok().await;
+        let panel = world(&telegram).await;
+        let mut watch = ServerWatch::default();
+        let high = |panel: &Panel, cpu: f32, temperature: Option<f64>| {
+            panel
+                .state
+                .monitor()
+                .inject(crate::monitor::system::Snapshot {
+                    cpu: Some(cpu),
+                    temperature,
+                    ..Default::default()
+                });
+        };
+        // Two looks over: not yet (the processor needs three minutes).
+        high(&panel, 95.0, Some(70.0));
+        server(&panel.state, &mut watch);
+        high(&panel, 95.0, Some(70.0));
+        server(&panel.state, &mut watch);
+        assert!(told(&panel, &telegram).await.is_empty());
+        high(&panel, 96.0, Some(90.0));
+        server(&panel.state, &mut watch);
+        high(&panel, 96.0, Some(91.0));
+        server(&panel.state, &mut watch);
+        let said = told(&panel, &telegram).await;
+        assert_eq!(said.len(), 2, "the processor and the temperature: {said:?}");
+        assert!(
+            said.iter()
+                .any(|m| m.contains("Processor") && m.contains("96%")),
+            "{said:?}"
+        );
+        assert!(
+            said.iter()
+                .any(|m| m.contains("Temperature") && m.contains("85")),
+            "{said:?}"
+        );
+        // Calm again.
+        for _ in 0..2 {
+            high(&panel, 20.0, Some(50.0));
+            server(&panel.state, &mut watch);
+        }
+        let said = told(&panel, &telegram).await;
+        assert_eq!(said.len(), 4, "and both are told as normal again: {said:?}");
+        assert!(said.iter().filter(|m| m.contains("back to normal")).count() == 2);
+    }
+
+    #[tokio::test]
+    async fn the_traffic_is_told_at_every_step_and_never_twice_and_the_first_look_only_learns() {
+        let telegram = ok().await;
+        let panel = world(&telegram).await;
+        let mut settings = panel.state.notify_settings();
+        settings.events.traffic_step_gb = 20;
+        panel.state.set_notify_settings(settings);
+        let gb = 1i64 << 30;
+        let ali = user(&panel, "ali", 0, 15 * gb, None).await;
+        traffic(&panel.state).await.unwrap();
+        assert!(
+            told(&panel, &telegram).await.is_empty(),
+            "the first look only learns"
+        );
+        let add = |bytes: i64| {
+            let db = panel.state.db().clone();
+            async move {
+                db.add_traffic(&[z_db::TrafficDelta {
+                    user_id: ali.id,
+                    uplink: 0,
+                    downlink: bytes,
+                }])
+                .await
+                .unwrap();
+            }
+        };
+        add(4 * gb).await;
+        traffic(&panel.state).await.unwrap();
+        assert!(
+            told(&panel, &telegram).await.is_empty(),
+            "19 GB is not yet 20"
+        );
+        add(2 * gb).await;
+        traffic(&panel.state).await.unwrap();
+        traffic(&panel.state).await.unwrap();
+        let said = told(&panel, &telegram).await;
+        assert_eq!(said.len(), 1, "21 GB passed 20, told once: {said:?}");
+        assert!(said[0].contains("grew"), "{said:?}");
+        add(20 * gb).await;
+        traffic(&panel.state).await.unwrap();
+        assert_eq!(told(&panel, &telegram).await.len(), 2, "41 GB passed 40");
+
+        // A new step is learned, not told.
+        let mut settings = panel.state.notify_settings();
+        settings.events.traffic_step_gb = 10;
+        panel.state.set_notify_settings(settings);
+        traffic(&panel.state).await.unwrap();
+        assert_eq!(
+            told(&panel, &telegram).await.len(),
+            2,
+            "changing the step tells nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_new_boot_is_told_and_the_first_look_and_a_mere_restart_are_not() {
+        let telegram = ok().await;
+        let panel = world(&telegram).await;
+        rebooted(&panel.state, Some("boot-1".into())).await.unwrap();
+        rebooted(&panel.state, Some("boot-1".into())).await.unwrap();
+        rebooted(&panel.state, None).await.unwrap();
+        assert!(told(&panel, &telegram).await.is_empty());
+        rebooted(&panel.state, Some("boot-2".into())).await.unwrap();
+        rebooted(&panel.state, Some("boot-2".into())).await.unwrap();
+        let said = told(&panel, &telegram).await;
+        assert_eq!(said.len(), 1);
+        assert!(said[0].contains("restarted"), "{said:?}");
     }
 
     #[tokio::test]

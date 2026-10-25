@@ -401,6 +401,8 @@ export interface SystemSnapshot {
   tx_total: number | null;
   uptime: number | null;
   panel_rss: number | null;
+  /** Degrees Celsius of the hottest sensor; none where the server has no sensor. */
+  temperature: number | null;
 }
 
 export interface SystemPoint {
@@ -593,6 +595,30 @@ export interface NotifyEvents {
   backup: boolean;
   certificate: boolean;
   update: boolean;
+  server_cpu: boolean;
+  cpu_percent: number;
+  cpu_minutes: number;
+  server_memory: boolean;
+  memory_percent: number;
+  server_disk: boolean;
+  disk_percent: number;
+  server_temperature: boolean;
+  temperature_celsius: number;
+  traffic: boolean;
+  traffic_step_gb: number;
+  reboot: boolean;
+}
+
+/** What the panel does by itself when the server stays over its limits. */
+export interface NotifyRelief {
+  enabled: boolean;
+  pause_idle: boolean;
+  idle_minutes: number;
+  pause_minutes: number;
+  throttle_busiest: boolean;
+  busiest_count: number;
+  throttle_mbit: number;
+  max_minutes: number;
 }
 
 export interface BackupSettingsView {
@@ -620,6 +646,7 @@ export interface NotifySettingsView {
   webhook: { enabled: boolean; url: string; secret_set: boolean };
   events: NotifyEvents;
   backup: BackupSettingsView;
+  relief: NotifyRelief;
 }
 
 export interface ChannelStatus {
@@ -650,6 +677,7 @@ export interface NotifyPayload {
   webhook: { enabled: boolean; url: string; secret: string };
   events: NotifyEvents;
   backup: Omit<BackupSettingsView, "passphrase_set"> & { passphrase: string };
+  relief: NotifyRelief;
 }
 
 export interface TelegramChat {

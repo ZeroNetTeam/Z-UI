@@ -21,7 +21,20 @@ const view: NotifySettingsView = {
     backup: true,
     certificate: true,
     update: true,
+    server_cpu: true,
+    cpu_percent: 90,
+    cpu_minutes: 3,
+    server_memory: true,
+    memory_percent: 90,
+    server_disk: true,
+    disk_percent: 90,
+    server_temperature: true,
+    temperature_celsius: 85,
+    traffic: true,
+    traffic_step_gb: 1024,
+    reboot: true,
   },
+  relief: { enabled: false, pause_idle: true, idle_minutes: 5, pause_minutes: 5, throttle_busiest: true, busiest_count: 10, throttle_mbit: 5, max_minutes: 30 },
   backup: { enabled: true, interval_hours: 12, keep: 5, send_telegram: false, include_usage: true, passphrase_set: true },
 };
 
@@ -66,6 +79,8 @@ describe("notify form", () => {
     expect(isDirty({ ...form, language: "fa" }, view)).toBe(true);
     expect(isDirty({ ...form, token: "x" }, view)).toBe(true);
     expect(isDirty({ ...form, events: { ...form.events, data_low_percent: 90 } }, view)).toBe(true);
+    expect(isDirty({ ...form, events: { ...form.events, traffic_step_gb: 200 } }, view)).toBe(true);
+    expect(isDirty({ ...form, relief: { ...form.relief, enabled: true } }, view)).toBe(true);
     expect(isDirty({ ...form, chatIds: "5" }, view)).toBe(true);
   });
 });

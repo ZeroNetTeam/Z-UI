@@ -113,6 +113,11 @@ function ServerSection({ system }: { system: SystemView | undefined }) {
                 format={(v) => formatPercent(v, locale)}
                 label={t("monitor.cpuHistory")}
               />
+              {now.temperature != null && (
+                <Fine>
+                  {t("monitor.temperature")}: <span dir="ltr">{number(now.temperature, 0)} °C</span>
+                </Fine>
+              )}
             </>
           )}
         </Tile>

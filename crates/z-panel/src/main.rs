@@ -19,6 +19,7 @@ mod notify;
 mod outbound;
 mod panel_settings;
 mod quota;
+mod relief;
 mod server;
 mod subscription;
 mod takeover;
@@ -146,6 +147,7 @@ async fn main() -> anyhow::Result<()> {
     backup::spawn(state.clone());
     certs::spawn(state.clone());
     takeover::spawn(state.clone());
+    relief::spawn(state.clone());
     update::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await

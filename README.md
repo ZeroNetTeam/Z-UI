@@ -12,7 +12,14 @@ inbounds, users with traffic, time, device and speed limits, subscriptions,
 admins and resellers, bots and backups, in one Rust binary with the web
 dashboard inside. See [ROADMAP.md](ROADMAP.md) for the plan (in Persian).
 
-> **Status:** early development, heading for v0.1. Not ready for production.
+> **Status:** beta (v0.2.0-beta.1). Usable, still changing; not yet advised for production.
+
+It also watches the server and tells the admins (Telegram, Discord, webhook):
+CPU, memory, disk or temperature over a limit, every N GB of traffic the panel
+carries (1 TB by default), a reboot, and users that ran out of data or time.
+Optionally, under sustained load it can lighten the server by itself: users that
+are connected but idle leave the core for a few minutes and the heaviest ones
+are slowed, then everything goes back. It is off until an admin turns it on.
 
 ## Installing
 

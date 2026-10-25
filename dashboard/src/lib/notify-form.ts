@@ -1,4 +1,4 @@
-import type { NotifyEvents, NotifyPayload, NotifySettingsView } from "@/lib/api";
+import type { NotifyEvents, NotifyPayload, NotifyRelief, NotifySettingsView } from "@/lib/api";
 
 /** What the notifications page edits; the secrets start empty and "set" says whether one is stored. */
 export interface NotifyForm {
@@ -20,6 +20,7 @@ export interface NotifyForm {
   webhookSecret: string;
   webhookSecretSet: boolean;
   events: NotifyEvents;
+  relief: NotifyRelief;
 }
 
 export function fromView(view: NotifySettingsView): NotifyForm {
@@ -41,6 +42,7 @@ export function fromView(view: NotifySettingsView): NotifyForm {
     webhookSecret: "",
     webhookSecretSet: view.webhook.secret_set,
     events: { ...view.events },
+    relief: { ...view.relief },
   };
 }
 
@@ -76,6 +78,7 @@ export function toPayload(form: NotifyForm, view: NotifySettingsView): NotifyPay
     discord: { enabled: form.discordEnabled, url: form.discordUrl.trim() },
     webhook: { enabled: form.webhookEnabled, url: form.webhookUrl.trim(), secret: form.webhookSecret.trim() },
     events: { ...form.events },
+    relief: { ...form.relief },
     backup: { ...backup, passphrase: "" },
   };
 }

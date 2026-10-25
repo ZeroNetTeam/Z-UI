@@ -210,8 +210,15 @@ pub async fn enforce_once(state: &AppState) -> Result<(), ApiError> {
     // 1. Traffic.
     let users = db.all_users().await?;
     let by_name = accounts::by_username(&users);
-    db.add_traffic(&traffic_deltas(state, &by_name).await)
-        .await?;
+    let deltas = traffic_deltas(state, &by_name).await;
+    state.relief().note_traffic(
+        &deltas
+            .iter()
+            .map(|d| (d.user_id, (d.uplink + d.downlink).max(0) as u64))
+            .collect::<Vec<_>>(),
+        now,
+    );
+    db.add_traffic(&deltas).await?;
 
     // 2. Online.
     let online = node.online().await;

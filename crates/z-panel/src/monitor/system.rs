@@ -127,6 +127,74 @@ pub fn parse_rss(text: &str) -> Option<u64> {
     Some(kb * 1024)
 }
 
+/// A temperature from a sysfs file, which counts in thousandths of a degree:
+/// degrees Celsius, or nothing for a reading that cannot be one (an unplugged
+/// sensor reads 0 or something absurd).
+pub fn parse_temperature(text: &str) -> Option<f64> {
+    let millidegrees: f64 = text.trim().parse().ok()?;
+    let degrees = millidegrees / 1000.0;
+    (1.0..=150.0).contains(&degrees).then_some(degrees)
+}
+
+/// The hottest sensor there is: the thermal zones, and the hardware monitors'
+/// temperatures. A virtual server usually has none, which is told as nothing
+/// rather than as a number.
+#[cfg(target_os = "linux")]
+pub fn read_temperature() -> Option<f64> {
+    let mut hottest: Option<f64> = None;
+    let mut take = |path: std::path::PathBuf| {
+        if let Some(degrees) = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|t| parse_temperature(&t))
+        {
+            hottest = Some(hottest.map_or(degrees, |h| h.max(degrees)));
+        }
+    };
+    for zone in std::fs::read_dir("/sys/class/thermal")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if zone
+            .file_name()
+            .to_string_lossy()
+            .starts_with("thermal_zone")
+        {
+            take(zone.path().join("temp"));
+        }
+    }
+    for monitor in std::fs::read_dir("/sys/class/hwmon")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        for entry in std::fs::read_dir(monitor.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("temp") && name.ends_with("_input") {
+                take(entry.path());
+            }
+        }
+    }
+    hottest
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn read_temperature() -> Option<f64> {
+    None
+}
+
+/// An id that is new at every boot of the machine, to tell a reboot from the
+/// panel merely restarting.
+pub fn boot_id() -> Option<String> {
+    let id = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
+    let id = id.trim();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
 /// Total and used bytes of the file system `path` is on.
 #[cfg(unix)]
 pub fn disk(path: &Path) -> Option<(u64, u64)> {
@@ -163,6 +231,8 @@ pub struct Raw {
     pub uptime: Option<u64>,
     pub rss: Option<u64>,
     pub disk: Option<(u64, u64)>,
+    /// Degrees Celsius of the hottest sensor.
+    pub temperature: Option<f64>,
 }
 
 #[cfg(target_os = "linux")]
@@ -176,6 +246,7 @@ pub fn read(data_dir: &Path) -> Raw {
         uptime: file("/proc/uptime").and_then(|t| parse_uptime(&t)),
         rss: file("/proc/self/status").and_then(|t| parse_rss(&t)),
         disk: disk(data_dir),
+        temperature: read_temperature(),
     }
 }
 
@@ -211,6 +282,9 @@ pub struct Snapshot {
     pub tx_total: Option<u64>,
     pub uptime: Option<u64>,
     pub panel_rss: Option<u64>,
+    /// Degrees Celsius of the hottest sensor; none where there is no sensor
+    /// (most virtual servers).
+    pub temperature: Option<f64>,
 }
 
 /// One point of the history the charts draw.
@@ -248,6 +322,7 @@ impl Sampler {
             tx_total: raw.net.map(|n| n.1),
             uptime: raw.uptime,
             panel_rss: raw.rss,
+            temperature: raw.temperature,
             ..Snapshot::default()
         };
         if let Some((then, before)) = &self.previous {
@@ -367,6 +442,15 @@ mod tests {
             parse_rss("Name:\tz-ui\nVmRSS:\t   20480 kB\n"),
             Some(20480 * 1024)
         );
+    }
+
+    #[test]
+    fn a_temperature_is_read_in_thousandths_and_an_impossible_one_is_nothing() {
+        assert_eq!(parse_temperature("45000\n"), Some(45.0));
+        assert_eq!(parse_temperature("86500"), Some(86.5));
+        for bad in ["0", "-5000", "999000", "not a number", ""] {
+            assert_eq!(parse_temperature(bad), None, "{bad:?}");
+        }
     }
 
     fn raw(idle: u64, total: u64, rx: u64, tx: u64) -> Raw {
