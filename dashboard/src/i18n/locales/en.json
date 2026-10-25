@@ -78,7 +78,11 @@
     "missingToken": "This page opens only from the setup link. Find it in the panel's log on the server.",
     "mismatch": "The two passwords differ",
     "signOut": "Sign out",
-    "account": "Account"
+    "account": "Account",
+    "inviteTitle": "Set your password",
+    "inviteSubtitle": "{{username}} came over from the old panel and has no password yet.",
+    "inviteInvalid": "This link is wrong, has already been used, or has run out. Ask whoever runs the server for a new one (z-ui admin invite).",
+    "inviteSet": "Set the password and sign in"
   },
   "errors": {
     "unknown": "Something went wrong. Try again.",
@@ -175,7 +179,13 @@
     "empty_upload": "The file is empty.",
     "invalid_config": "{{message}}",
     "import_running": "Another import is still running.",
-    "too_big": "That file is bigger than a configuration file is."
+    "too_big": "That file is bigger than a configuration file is.",
+    "invalid_invite": "This link is wrong, has been used, or has run out.",
+    "wrong_phase": "That does not apply now: this panel has not replaced another, or it already went back or let go.",
+    "old_panel_gone": "The old panel's files are gone, so there is nothing to go back to.",
+    "no_takeover": "This panel has not replaced another.",
+    "file_in_use": "{{message}}",
+    "spawn_failed": "Going back could not be started: {{message}}"
   },
   "settings": {
     "title": "Settings",
@@ -976,7 +986,8 @@
       "settings": "The subscriptions' address and look",
       "audit": "Read who did what",
       "api": "Make API keys for themselves"
-    }
+    },
+    "pending": "No password yet"
   },
   "audit": {
     "title": "Activity log",
@@ -1012,7 +1023,8 @@
       "notifications": "Notifications",
       "panel": "Panel",
       "update": "Updates",
-      "migrate": "Migration"
+      "migrate": "Migration",
+      "takeover": "Replacing a panel"
     },
     "action": {
       "auth": {
@@ -1024,7 +1036,8 @@
         "2fa_disable": "Turned two-factor sign-in off",
         "telegram_link": "Made a Telegram link code",
         "telegram_linked": "Linked a Telegram chat",
-        "telegram_unlink": "Unlinked a Telegram chat"
+        "telegram_unlink": "Unlinked a Telegram chat",
+        "invite": "Set a password through a link"
       },
       "user": {
         "create": "Made a user",
@@ -1120,6 +1133,14 @@
         "config": "Gave Marzban's inbound file",
         "apply": "Imported from another panel",
         "discard": "Threw an uploaded database away"
+      },
+      "takeover": {
+        "prepare": "Prepared replacing a panel",
+        "cutover": "Took over from another panel",
+        "rollback": "Went back to the old panel",
+        "delete_old": "Deleted the old panel's files",
+        "rollback_start": "Asked to go back to the old panel",
+        "delete_old_start": "Asked to delete the old panel's files"
       }
     }
   },
@@ -1432,7 +1453,8 @@
       "templates": "Templates",
       "hosts": "Hosts",
       "usage": "Hours of usage",
-      "certificates": "Certificates"
+      "certificates": "Certificates",
+      "admins": "Admins"
     },
     "links": {
       "tokens": "Every user keeps its subscription token, so the links already handed out keep working at the same address: set the same subscription path (and domain) under Settings.",
@@ -1479,7 +1501,8 @@
       "skipped_error": "{{name}} could not be added (see the details).",
       "cert_not_taken": "The certificate of {{name}} could not be brought into the store; it keeps naming its files.",
       "old_links_not_kept": "The old panel's signed links cannot be kept (see the details).",
-      "subscription_settings_refused": "The old panel's subscription settings were not taken (see the details)."
+      "subscription_settings_refused": "The old panel's subscription settings were not taken (see the details).",
+      "no_sudo_admin": "None of the admins was an owner, so the first became a sudo admin here."
     },
     "optionsTitle": "What to bring",
     "opt": {
@@ -1495,7 +1518,9 @@
       "conflict": "A name that is taken",
       "conflictHint": "A user or template named like one that is already here.",
       "skip": "Leave it out",
-      "rename": "Bring it under another name (name-2)"
+      "rename": "Bring it under another name (name-2)",
+      "admins": "Admins, without passwords",
+      "adminsHint": "Each gets a link to set a password; a user stays its admin's."
     },
     "import": "Import…",
     "confirmTitle": "Import into this panel?",
@@ -1513,5 +1538,33 @@
     "next2": "Stop the old panel, then switch the inbounds on under Inbounds.",
     "next3": "Make the subscription domain and path what users already have, under Settings.",
     "another": "Import another"
+  },
+  "takeover": {
+    "title": "{{panel}} was replaced by this panel",
+    "replacedOn": "Switched {{when}}",
+    "body": "{{users}} users and {{inbounds}} inbounds came over, and users' apps reconnected by themselves. The old panel's files stay where they are, stopped, until {{date}} ({{left}}), so you can go back.",
+    "daysLeft_one": "{{formatted}} day left",
+    "daysLeft_other": "{{formatted}} days left",
+    "hoursLeft_one": "{{formatted}} hour left",
+    "hoursLeft_other": "{{formatted}} hours left",
+    "back": "I made a mistake: bring the old panel back",
+    "delete": "Delete the old panel's files",
+    "cannotBack": "The old panel's files are not where they were, so there is nothing to go back to.",
+    "backTitle": "Bring {{panel}} back?",
+    "back1": "This panel stops, and {{panel}} starts again with its own files.",
+    "back2": "Everything its users used while this panel served is added to {{panel}}'s own counters, so nothing is lost.",
+    "back3": "Users made here since are not in {{panel}}, and settings changed here are not carried back.",
+    "back4": "You will be cut off from this panel: afterwards open {{panel}} at its own address.",
+    "backNow": "Bring it back now",
+    "starting": "Starting…",
+    "started": "Going back has started. This panel stops in a moment; {{panel}} starts at its own address.",
+    "deleteTitle": "Delete the files of {{panel}}?",
+    "deleteBody": "They are deleted for good, and there is no way back to {{panel}} after this. They would be deleted by themselves on {{date}} anyway.",
+    "deleteNow": "Delete them",
+    "deleted": "The files of {{panel}} were deleted on {{when}}; there is no way back.",
+    "rolledBack": "{{panel}} was brought back on {{when}}. This panel does not start by itself.",
+    "prepared": "A takeover of {{panel}} was prepared but has not switched yet; it is switched from the server.",
+    "bannerBody": "This panel replaced {{panel}} on {{when}}. If something is wrong you can still go back ({{left}}).",
+    "open": "Open"
   }
 }

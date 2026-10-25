@@ -141,6 +141,7 @@ function AdminsTable({ onEdit }: { onEdit: (admin: AdminRow) => void }) {
                           </span>
                           {self && <Badge variant="outline">{t("access.you")}</Badge>}
                           {!admin.enabled && <Badge variant="destructive">{t("access.disabled")}</Badge>}
+                          {admin.pending && <Badge variant="outline">{t("access.pending")}</Badge>}
                           {admin.totp_enabled && (
                             <Badge variant="success" title={t("access.twoFactor")}>
                               <ShieldCheckIcon /> 2FA

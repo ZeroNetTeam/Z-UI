@@ -26,6 +26,7 @@ import { LoginPage } from "@/pages/login";
 import { LogsPage } from "@/pages/logs";
 import { NotificationsPage } from "@/pages/notifications";
 import { SettingsPage } from "@/pages/settings";
+import { InvitePage } from "@/pages/invite";
 import { SetupPage } from "@/pages/setup";
 import { TemplatesPage } from "@/pages/templates";
 import { UsersPage } from "@/pages/users";
@@ -62,6 +63,7 @@ const router = createBrowserRouter(
   [
     { path: "login", element: <LoginPage /> },
     { path: "setup", element: <SetupPage /> },
+    { path: "invite/:token", element: <InvitePage /> },
     {
       element: (
         <RequireAdmin>

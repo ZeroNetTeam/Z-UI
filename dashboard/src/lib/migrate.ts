@@ -6,6 +6,7 @@ export const defaultOptions: MigrateOptions = {
   users: true,
   hosts: true,
   templates: true,
+  admins: true,
   usage: true,
   settings: true,
   // The old panel still holds the ports until it is stopped.

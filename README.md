@@ -104,7 +104,13 @@ The same program has commands for the server: `z-ui admin create|list|reset-pass
 `z-ui update check|apply|rollback`, `z-ui backup`, `z-ui restore FILE`,
 `z-ui migrate FROM [--apply]` (bring over the users, inbounds and quota of
 3X-UI, PasarGuard or Marzban from their database; their subscription links keep
-working) and `z-ui health`.
+working), `z-ui takeover status|rollback|delete-old` and `z-ui health`.
+
+To replace a 3X-UI or PasarGuard that is installed on the same server, run the
+installer with `--replace`: their users, inbounds and settings move over, users
+reconnect by themselves within seconds, the old panel's files stay (stopped) for a
+week, and "I made a mistake" (in the panel, or `z-ui takeover rollback`) brings the old
+panel back with everything its users used meanwhile.
 
 ### First start
 

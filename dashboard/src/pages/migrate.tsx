@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FormError } from "@/components/form-error";
 import { PageHeader } from "@/components/layout/layout";
+import { TakeoverCard } from "@/components/takeover-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -215,12 +216,13 @@ function Preview({
       </CardHeader>
       <CardContent className="grid gap-5">
         {analysis.needs_xray_config && <Pick analysis={analysis} onChange={onChange} />}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
           <Count label={t("migrate.counts.inbounds")} value={s.inbounds} />
           <Count label={t("migrate.counts.users")} value={s.users} />
           <Count label={t("migrate.counts.groups")} value={s.groups} />
           <Count label={t("migrate.counts.templates")} value={s.templates} />
           <Count label={t("migrate.counts.hosts")} value={s.hosts} />
+          <Count label={t("migrate.counts.admins")} value={s.admins} />
           <Count label={t("migrate.counts.usage")} value={s.usage_hours} />
         </div>
         <p className="flex items-start gap-2 text-sm">
@@ -241,6 +243,7 @@ function Preview({
             <SwitchField label={t("migrate.opt.users")} checked={options.users} onCheckedChange={(users) => set({ users })} />
             <SwitchField label={t("migrate.opt.hosts")} checked={options.hosts && options.inbounds} disabled={!options.inbounds} onCheckedChange={(hosts) => set({ hosts })} />
             <SwitchField label={t("migrate.opt.templates")} checked={options.templates} onCheckedChange={(templates) => set({ templates })} />
+            <SwitchField label={t("migrate.opt.admins")} hint={t("migrate.opt.adminsHint")} checked={options.admins} onCheckedChange={(admins) => set({ admins })} />
             <SwitchField label={t("migrate.opt.usage")} checked={options.usage && options.users} disabled={!options.users} onCheckedChange={(usage) => set({ usage })} />
             <SwitchField label={t("migrate.opt.settings")} hint={t("migrate.opt.settingsHint")} checked={options.settings} onCheckedChange={(settings) => set({ settings })} />
           </div>
@@ -310,6 +313,7 @@ function Report({ report, onAgain }: { report: MigrateReport; onAgain: () => voi
           <Count label={t("migrate.counts.groups")} value={n.groups} />
           <Count label={t("migrate.counts.templates")} value={n.templates} />
           <Count label={t("migrate.counts.hosts")} value={n.hosts} />
+          <Count label={t("migrate.counts.admins")} value={n.admins} />
           <Count label={t("migrate.counts.certificates")} value={n.certificates} />
         </div>
         <p className="break-all text-xs" dir="ltr">
@@ -348,6 +352,7 @@ export function MigratePage() {
     <>
       <PageHeader title={t("migrate.title")} subtitle={t("migrate.subtitle")} />
       <div className="grid gap-4">
+        <TakeoverCard />
         {report ? (
           <Report
             report={report}

@@ -487,6 +487,8 @@ export interface AdminRow {
   role_id: number | null;
   role: string | null;
   totp_enabled: boolean;
+  /** Brought over from another panel and still waiting for the link that sets a password. */
+  pending: boolean;
   last_login_at: number | null;
   created_at: number;
   user_limit: number;
@@ -758,6 +760,7 @@ export interface MigrateSummary {
   groups: number;
   templates: number;
   hosts: number;
+  admins: number;
   usage_hours: number;
   /** `tokens`: users keep their token; `signed`: links signed with the old key work. */
   links: "tokens" | "signed";
@@ -780,6 +783,7 @@ export interface MigrateOptions {
   users: boolean;
   hosts: boolean;
   templates: boolean;
+  admins: boolean;
   usage: boolean;
   settings: boolean;
   enable_inbounds: boolean;
@@ -793,6 +797,7 @@ export interface MigrateReport {
     groups: number;
     templates: number;
     hosts: number;
+    admins: number;
     certificates: number;
     usage_hours: number;
   };
@@ -802,4 +807,27 @@ export interface MigrateReport {
   links: "tokens" | "signed";
   core_applied: boolean;
   core_error: string | null;
+}
+
+export interface InviteView {
+  username: string;
+}
+
+export type TakeoverPhase = "prepared" | "switched" | "rolled_back" | "finished";
+
+/** Replacing another panel on this machine: where it has got to. */
+export interface TakeoverView {
+  phase: TakeoverPhase;
+  /** The panel that was replaced. */
+  kind: MigrateKind;
+  prepared_at: number;
+  switched_at: number | null;
+  /** When the old panel's files are deleted by themselves. */
+  expires_at: number | null;
+  ended_at: number | null;
+  users: number;
+  inbounds: number;
+  /** The old panel's files are still where they were. */
+  can_rollback: boolean;
+  can_delete: boolean;
 }

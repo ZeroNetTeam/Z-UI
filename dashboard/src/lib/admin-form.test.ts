@@ -12,6 +12,7 @@ const row: AdminRow = {
   role_id: 5,
   role: "Reseller",
   totp_enabled: false,
+  pending: false,
   last_login_at: null,
   created_at: 0,
   user_limit: 30,

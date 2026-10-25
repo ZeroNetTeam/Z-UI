@@ -35,7 +35,7 @@ describe("grouping warnings", () => {
 
 describe("options and files", () => {
   it("brings everything but leaves the inbounds off", () => {
-    expect(defaultOptions).toMatchObject({ inbounds: true, users: true, usage: true, enable_inbounds: false, on_conflict: "skip" });
+    expect(defaultOptions).toMatchObject({ inbounds: true, users: true, admins: true, usage: true, enable_inbounds: false, on_conflict: "skip" });
   });
 
   it("does not offer a text file as a database", () => {

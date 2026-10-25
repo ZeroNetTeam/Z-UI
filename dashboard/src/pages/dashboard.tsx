@@ -18,6 +18,7 @@ import { StackedColumns } from "@/components/charts/stacked-columns";
 import { PageHeader } from "@/components/layout/layout";
 import { QuickActions } from "@/components/quick-actions";
 import { QuotaCard } from "@/components/quota-card";
+import { TakeoverBanner } from "@/components/takeover-card";
 import { can, useMe } from "@/lib/permissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -395,6 +396,7 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader title={t("dashboard.title")} subtitle={t("dashboard.subtitle")} action={<QuickActions />} />
+      <TakeoverBanner />
       <QuotaCard />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {canUsers && (
