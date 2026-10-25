@@ -90,6 +90,24 @@ export function SubscriptionSettingsCard() {
               />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
+              <TextareaField
+                label={t("subscription.announce")}
+                value={form.announce}
+                onChange={(e) => set({ announce: e.target.value })}
+                dir="auto"
+                maxLength={600}
+                className="min-h-16"
+                hint={t("subscription.announceHint")}
+              />
+              <Field
+                label={t("subscription.announceUrl")}
+                value={form.announce_url}
+                onChange={(e) => set({ announce_url: e.target.value })}
+                placeholder="https://example.com/status"
+                dir="ltr"
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field
                 label={t("subscription.legacyJsonPath")}
                 value={form.legacy_json_path}

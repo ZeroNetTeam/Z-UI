@@ -359,6 +359,9 @@ export interface SubscriptionSettings {
   update_hours: number;
   title: string;
   support_url: string;
+  /** A notice at the top of the page users open their link in, and where "more" leads. */
+  announce: string;
+  announce_url: string;
   remark_template: string;
   hwid_required: boolean;
   template: string;

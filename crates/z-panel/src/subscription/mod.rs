@@ -58,6 +58,10 @@ pub struct Settings {
     /// The profile's name in client apps.
     pub title: String,
     pub support_url: String,
+    /// A notice shown at the top of the page users open their link in, and
+    /// where "more" leads (empty for none).
+    pub announce: String,
+    pub announce_url: String,
     /// Each config's name: `{remark}` with any of `{username}`, `{protocol}`,
     /// `{transport}`, `{security}`, `{data_left}`, `{days_left}`,
     /// `{expire_date}` and `{status}`.
@@ -84,6 +88,8 @@ impl Default for Settings {
             update_hours: 12,
             title: z_common::PRODUCT.into(),
             support_url: String::new(),
+            announce: String::new(),
+            announce_url: String::new(),
             remark_template: "{remark}".into(),
             hwid_required: false,
             template: String::new(),
@@ -123,6 +129,17 @@ impl Settings {
         self.title = self.title.trim().chars().take(64).collect();
         if self.title.is_empty() {
             self.title = z_common::PRODUCT.into();
+        }
+        self.announce = self.announce.trim().chars().take(600).collect();
+        self.announce_url = self.announce_url.trim().to_string();
+        if !self.announce_url.is_empty()
+            && !(self.announce_url.starts_with("http://")
+                || self.announce_url.starts_with("https://"))
+        {
+            return Err("the announcement's link starts with http:// or https://");
+        }
+        if self.announce_url.len() > 500 {
+            return Err("the announcement's link is too long");
         }
         if self.remark_template.trim().is_empty() {
             self.remark_template = "{remark}".into();
@@ -264,16 +281,28 @@ pub async fn intercept(State(state): State<AppState>, request: Request, next: Ne
                     .find_map(|pair| pair.strip_prefix("format="))
                     .map(str::to_string)
             });
+            let query_lang = request.uri().query().and_then(|query| {
+                query
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("lang="))
+                    .map(str::to_string)
+            });
             let format = forced
                 .map(str::to_string)
                 .or_else(|| format.map(str::to_string))
                 .or(query_format);
-            return serve(&state, token, format.as_deref(), request.headers())
-                .await
-                .unwrap_or_else(|error| {
-                    tracing::warn!(%error, "a subscription could not be served");
-                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
-                });
+            return serve(
+                &state,
+                token,
+                format.as_deref(),
+                query_lang.as_deref(),
+                request.headers(),
+            )
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "a subscription could not be served");
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            });
         }
     }
     next.run(request).await
@@ -550,6 +579,7 @@ pub async fn serve(
     state: &AppState,
     token: &str,
     format: Option<&str>,
+    lang: Option<&str>,
     headers: &HeaderMap,
 ) -> Result<Response, z_db::DbError> {
     let db = state.db();
@@ -638,6 +668,7 @@ pub async fn serve(
                 &endpoints,
                 &sub_url,
                 header_text(headers, "accept-language"),
+                lang,
             ),
         ),
     };
