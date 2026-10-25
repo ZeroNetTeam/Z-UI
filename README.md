@@ -21,6 +21,55 @@ Optionally, under sustained load it can lighten the server by itself: users that
 are connected but idle leave the core for a few minutes and the heaviest ones
 are slowed, then everything goes back. It is off until an admin turns it on.
 
+## Performance
+
+A panel is a small program on a small server, so it was measured as one: each
+panel alone in **1 CPU and 1 GB** (no swap), with the same job, one VLESS
+inbound and *N* users that each have a subscription link, against the two
+panels it replaces, [3X-UI](https://github.com/MHSanaei/3x-ui) 3.10.2 and
+[PasarGuard](https://github.com/PasarGuard/panel) 5.4.1, built from their own
+sources. The load is [oha](https://github.com/hatoo/oha) on other cores.
+
+![Z-UI, 3X-UI and PasarGuard on 1 CPU and 1 GB](docs/bench/overview.png)
+
+**10,000 users**
+
+| | Z-UI | 3X-UI | PasarGuard |
+|---|---:|---:|---:|
+| Subscription fetches / s | **7,766** | 59 | 196 |
+| Subscription latency, median / 99th % | **8.0 / 13 ms** | 1,094.7 / 2,081 ms | 302.9 / 962 ms |
+| CPU per subscription fetch | **0.12 ms** | 16.13 ms | 5.23 ms |
+| Dashboard user list / s | **1,552** | 124 | 92 |
+| Memory at rest | **130 MB** | 194 MB | 287 MB |
+| Memory, peak under load | **142 MB** | 675 MB | 321 MB |
+| Idle CPU | 0.5% | 18.7% | 0.6% |
+| Start, users stored | **0.23 s** | 0.62 s | 3.80 s |
+
+**1,000 users**
+
+| | Z-UI | 3X-UI | PasarGuard |
+|---|---:|---:|---:|
+| Subscription fetches / s | **8,300** | 279 | 203 |
+| Subscription latency, median / 99th % | **7.7 / 9 ms** | 213.0 / 633 ms | 294.3 / 870 ms |
+| CPU per subscription fetch | **0.12 ms** | 2.94 ms | 4.99 ms |
+| Dashboard user list / s | **1,671** | 501 | 92 |
+| Memory at rest | **31 MB** | 115 MB | 285 MB |
+| Memory, peak under load | **34 MB** | 155 MB | 312 MB |
+| Idle CPU | 0.4% | 2.5% | 0.8% |
+| Start, users stored | **0.09 s** | 0.19 s | 3.81 s |
+
+What to keep in mind: Z-UI's figures **include its proxy core**, which runs in
+the same process with all the users loaded, while the other two's cores are
+separate programs this test does not start, so the comparison leans toward them
+on memory. All three were on SQLite, their default. It is one machine and one
+run per figure. How it was done, what is and is not alike, and how to repeat it
+is in [bench/](bench/README.md); the raw numbers are in
+[bench/results/latest.json](bench/results/latest.json).
+
+The Z-UI measured is `main` with the three fixes this benchmark found in it
+(SQLite was syncing the disk on every commit, a subscription fetch wrote the
+database every time, and the user list read every user to count them).
+
 ## Installing
 
 On a Linux server (Ubuntu, Debian, CentOS/Rocky/Alma, Fedora or Arch; x86_64

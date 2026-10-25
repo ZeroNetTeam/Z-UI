@@ -9,3 +9,7 @@ node_modules/
 # Reference checkouts, each its own repository. zray-core (resources/zray-core)
 # is a build dependency; see README.md for how to get it.
 /resources/
+
+# Benchmark scratch: only results/latest.json is kept
+bench/__pycache__/
+bench/results/2*.json

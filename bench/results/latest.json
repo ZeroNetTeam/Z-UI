@@ -1,0 +1,294 @@
+{
+  "machine": {
+    "cpu": "12th Gen Intel(R) Core(TM) i5-12450HX",
+    "kernel": "7.2.11-arch1-1",
+    "cores": 12,
+    "panel_limits": "1 CPU (quota 100%, pinned to core 2), 1G memory, no swap",
+    "load_generator": "oha, pinned to cores 6-11",
+    "date": "2026-10-25T22:41:03+03:30"
+  },
+  "panels": {
+    "zui": {
+      "name": "Z-UI",
+      "version": "0.2.0-beta.1",
+      "runs": [
+        {
+          "users": 1000,
+          "start_empty_s": 0.06896711199078709,
+          "idle_empty": {
+            "rss_mb": 20.2890625,
+            "cpu_percent": 0.0019333333333334164,
+            "processes": 1
+          },
+          "seed_s": 0.2460164160002023,
+          "start_loaded_s": 0.0888026749889832,
+          "idle_loaded": {
+            "rss_mb": 30.75,
+            "cpu_percent": 0.4300666666666668,
+            "processes": 1
+          },
+          "subscription": {
+            "rps": 8300.298818142845,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 7.6561650000000006,
+            "p95_ms": 8.083049,
+            "p99_ms": 8.565523,
+            "status": {
+              "200": 124462
+            },
+            "requests": 124462,
+            "peak_rss_mb": 31.734375,
+            "cpu_ms_per_request": 0.11599698703218655
+          },
+          "user_list": {
+            "rps": 1670.6503359366932,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 9.465239,
+            "p95_ms": 11.722161999999999,
+            "p99_ms": 12.987937,
+            "status": {
+              "200": 25047
+            },
+            "requests": 25047,
+            "peak_rss_mb": 34.41015625,
+            "cpu_ms_per_request": 0.5911867289495748
+          }
+        },
+        {
+          "users": 10000,
+          "start_empty_s": 0.08273820200702175,
+          "idle_empty": {
+            "rss_mb": 20.015625,
+            "cpu_percent": 0.0026666666666667893,
+            "processes": 1
+          },
+          "seed_s": 4.391205596009968,
+          "start_loaded_s": 0.22753553600341547,
+          "idle_loaded": {
+            "rss_mb": 129.7265625,
+            "cpu_percent": 0.47825000000000045,
+            "processes": 1
+          },
+          "subscription": {
+            "rps": 7765.743690429836,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 7.995176999999999,
+            "p95_ms": 8.684631,
+            "p99_ms": 12.771706,
+            "status": {
+              "200": 116442
+            },
+            "requests": 116442,
+            "peak_rss_mb": 141.15234375,
+            "cpu_ms_per_request": 0.12414430360179317
+          },
+          "user_list": {
+            "rps": 1552.1247280803043,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 9.994446,
+            "p95_ms": 13.260628,
+            "p99_ms": 16.998003,
+            "status": {
+              "200": 23269
+            },
+            "requests": 23269,
+            "peak_rss_mb": 142.32421875,
+            "cpu_ms_per_request": 0.636407967682324
+          }
+        }
+      ]
+    },
+    "3xui": {
+      "name": "3X-UI",
+      "version": "3.10.2",
+      "runs": [
+        {
+          "users": 1000,
+          "start_empty_s": 0.14414129398937803,
+          "idle_empty": {
+            "rss_mb": 95.92578125,
+            "cpu_percent": 1.4599666666666669,
+            "processes": 1
+          },
+          "seed_s": 0.4726154109957861,
+          "start_loaded_s": 0.18523728800937533,
+          "idle_loaded": {
+            "rss_mb": 115.06640625,
+            "cpu_percent": 2.519416666666667,
+            "processes": 1
+          },
+          "subscription": {
+            "rps": 279.0257152529487,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 212.95465099999998,
+            "p95_ms": 354.681405,
+            "p99_ms": 633.49014,
+            "status": {
+              "200": 4122
+            },
+            "requests": 4122,
+            "peak_rss_mb": 155.05859375,
+            "cpu_ms_per_request": 2.9375325084910235
+          },
+          "user_list": {
+            "rps": 500.5261887376834,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 29.954781,
+            "p95_ms": 62.657413,
+            "p99_ms": 73.077883,
+            "status": {
+              "200": 7493
+            },
+            "requests": 7493,
+            "peak_rss_mb": 154.24609375,
+            "cpu_ms_per_request": 1.9732786600827439
+          }
+        },
+        {
+          "users": 10000,
+          "start_empty_s": 0.14396200299961492,
+          "idle_empty": {
+            "rss_mb": 96.01953125,
+            "cpu_percent": 0.5747666666666669,
+            "processes": 1
+          },
+          "seed_s": 61.92340782699466,
+          "start_loaded_s": 0.6152729699970223,
+          "idle_loaded": {
+            "rss_mb": 193.80859375,
+            "cpu_percent": 18.66863333333333,
+            "processes": 1
+          },
+          "subscription": {
+            "rps": 59.05661433324661,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 1094.70263,
+            "p95_ms": 1655.5155190000003,
+            "p99_ms": 2081.369225,
+            "status": {
+              "200": 822
+            },
+            "requests": 822,
+            "peak_rss_mb": 674.71484375,
+            "cpu_ms_per_request": 16.127423357664235
+          },
+          "user_list": {
+            "rps": 123.98532421259755,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 130.301214,
+            "p95_ms": 205.82993,
+            "p99_ms": 244.852519,
+            "status": {
+              "200": 1844
+            },
+            "requests": 1844,
+            "peak_rss_mb": 290.296875,
+            "cpu_ms_per_request": 8.074640455531453
+          }
+        }
+      ]
+    },
+    "pasarguard": {
+      "name": "PasarGuard",
+      "version": "5.4.1",
+      "runs": [
+        {
+          "users": 1000,
+          "start_empty_s": 3.8133707480010344,
+          "idle_empty": {
+            "rss_mb": 284.5390625,
+            "cpu_percent": 0.6375666666666706,
+            "processes": 1
+          },
+          "seed_s": 9.520369175996166,
+          "start_loaded_s": 3.8094755670026643,
+          "idle_loaded": {
+            "rss_mb": 285.19140625,
+            "cpu_percent": 0.8217500000000063,
+            "processes": 1
+          },
+          "subscription": {
+            "rps": 203.30842798313594,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 294.266751,
+            "p95_ms": 646.4650250000001,
+            "p99_ms": 869.862077,
+            "status": {
+              "200": 2986
+            },
+            "requests": 2986,
+            "peak_rss_mb": 310.24609375,
+            "cpu_ms_per_request": 4.9886513730743465
+          },
+          "user_list": {
+            "rps": 91.72052071035426,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 158.861121,
+            "p95_ms": 335.291476,
+            "p99_ms": 350.50973000000005,
+            "status": {
+              "200": 1360
+            },
+            "requests": 1360,
+            "peak_rss_mb": 311.69140625,
+            "cpu_ms_per_request": 10.97137867647059
+          }
+        },
+        {
+          "users": 10000,
+          "start_empty_s": 3.7933437199972104,
+          "idle_empty": {
+            "rss_mb": 284.56640625,
+            "cpu_percent": 0.45200000000000057,
+            "processes": 1
+          },
+          "seed_s": 96.19965801699436,
+          "start_loaded_s": 3.802217901000404,
+          "idle_loaded": {
+            "rss_mb": 286.64453125,
+            "cpu_percent": 0.5567999999999944,
+            "processes": 1
+          },
+          "subscription": {
+            "rps": 196.43407368347647,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 302.918967,
+            "p95_ms": 719.778334,
+            "p99_ms": 962.109873,
+            "status": {
+              "200": 2884
+            },
+            "requests": 2884,
+            "peak_rss_mb": 315.24609375,
+            "cpu_ms_per_request": 5.226735436893204
+          },
+          "user_list": {
+            "rps": 92.11990432091054,
+            "success": 1.0,
+            "ok_share": 1.0,
+            "p50_ms": 157.64316300000002,
+            "p95_ms": 332.987347,
+            "p99_ms": 350.766727,
+            "status": {
+              "200": 1366
+            },
+            "requests": 1366,
+            "peak_rss_mb": 321.25390625,
+            "cpu_ms_per_request": 10.922741581259153
+          }
+        }
+      ]
+    }
+  }
+}
