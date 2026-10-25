@@ -12,7 +12,7 @@ inbounds, users with traffic, time, device and speed limits, subscriptions,
 admins and resellers, bots and backups, in one Rust binary with the web
 dashboard inside. See [ROADMAP.md](ROADMAP.md) for the plan (in Persian).
 
-> **Status:** beta (v0.2.0-beta.3). Usable, still changing; not yet advised for production.
+> **Status:** beta (v0.2.0-beta.4). Usable, still changing; not yet advised for production.
 
 It also watches the server and tells the admins (Telegram, Discord, webhook):
 CPU, memory, disk or temperature over a limit, every N GB of traffic the panel
